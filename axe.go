@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"encoding/xml"
 	"errors"
 	"fmt"
 	"os"
@@ -45,14 +46,6 @@ const (
 	applyEditsToolName      = "apply_edits"
 	runTestsToolName        = "run_tests"
 	finalizeToolName        = "finalize_task"
-)
-
-var xmlAttrEscaper = strings.NewReplacer(
-	"&", "&amp;",
-	"\"", "&quot;",
-	"'", "&apos;",
-	"<", "&lt;",
-	">", "&gt;",
 )
 
 // Runner is the core workflow executor.
@@ -268,21 +261,43 @@ func buildUserPrompt(instruction, testCmd, projectState string) string {
 	instruction = strings.TrimSpace(instruction)
 	testCmd = strings.TrimSpace(testCmd)
 
-	var sb strings.Builder
-	sb.WriteString("<Task>\n")
-	sb.WriteString("  <Instruction>")
-	sb.WriteString(toCDATA(instruction))
-	sb.WriteString("</Instruction>\n")
-	if testCmd != "" {
-		sb.WriteString("  <TestCommand>")
-		sb.WriteString(toCDATA(testCmd))
-		sb.WriteString("</TestCommand>\n")
+	// Embed pre-rendered XML inside a node
+	type innerXML struct {
+		XML string `xml:",innerxml"`
 	}
-	sb.WriteString("  <CurrentState>\n")
-	sb.WriteString(indentBlock(projectState, "    "))
-	sb.WriteString("\n  </CurrentState>\n")
-	sb.WriteString("</Task>")
-	return sb.String()
+
+	type taskXML struct {
+		XMLName      xml.Name `xml:"Task"`
+		Instruction  string   `xml:"Instruction"`
+		TestCommand  string   `xml:"TestCommand,omitempty"`
+		CurrentState innerXML `xml:"CurrentState"`
+	}
+
+	payload := taskXML{
+		Instruction:  instruction,
+		TestCommand:  testCmd,
+		CurrentState: innerXML{XML: strings.TrimSpace(projectState)},
+	}
+	out, err := xml.MarshalIndent(payload, "", "  ")
+	if err != nil {
+		// Fallback minimal formatting
+		var sb strings.Builder
+		sb.WriteString("<Task>\n")
+		sb.WriteString("  <Instruction>")
+		sb.WriteString(instruction)
+		sb.WriteString("</Instruction>\n")
+		if testCmd != "" {
+			sb.WriteString("  <TestCommand>")
+			sb.WriteString(testCmd)
+			sb.WriteString("</TestCommand>\n")
+		}
+		sb.WriteString("  <CurrentState>\n")
+		sb.WriteString(projectState)
+		sb.WriteString("\n  </CurrentState>\n")
+		sb.WriteString("</Task>")
+		return sb.String()
+	}
+	return string(out)
 }
 
 type getProjectStateTool struct {
@@ -549,19 +564,23 @@ func (s *runnerState) renderProjectState(paths []string) string {
 	}
 	s.mu.RUnlock()
 
-	var sb strings.Builder
-	sb.WriteString("<ProjectState>")
-	if testCmd != "" {
-		sb.WriteString("\n  <TestCommand>")
-		sb.WriteString(toCDATA(testCmd))
-		sb.WriteString("</TestCommand>")
+	type projectStateXML struct {
+		XMLName     xml.Name    `xml:"ProjectState"`
+		TestCommand string      `xml:"TestCommand,omitempty"`
+		Files       filesXML    `xml:"Files"`
+		LastTest    lastTestXML `xml:"LastTest"`
 	}
-	sb.WriteString("\n")
-	sb.WriteString(indentBlock(renderFilesXML(filesCopy, paths), "  "))
-	sb.WriteString("\n")
-	sb.WriteString(indentBlock(renderLastTestXML(lastCopy), "  "))
-	sb.WriteString("\n</ProjectState>")
-	return sb.String()
+
+	payload := projectStateXML{
+		TestCommand: strings.TrimSpace(testCmd),
+		Files:       buildFilesXML(filesCopy, paths),
+		LastTest:    buildLastTestXML(lastCopy),
+	}
+	out, err := xml.MarshalIndent(payload, "", "  ")
+	if err != nil {
+		return "<ProjectState/>"
+	}
+	return string(out)
 }
 
 func (s *runnerState) renderFiles(paths []string) string {
@@ -775,7 +794,19 @@ func sanitizeRelativePath(path string) (string, error) {
 	return clean, nil
 }
 
-func renderFilesXML(files map[string]string, filter []string) string {
+// Files XML support
+
+type fileXML struct {
+	Path    string `xml:"path,attr"`
+	Content string `xml:",chardata"`
+}
+
+type filesXML struct {
+	XMLName xml.Name `xml:"Files"`
+	Files   []fileXML `xml:"File"`
+}
+
+func buildFilesXML(files map[string]string, filter []string) filesXML {
 	selected := make([]string, 0, len(files))
 	if len(filter) == 0 {
 		for path := range files {
@@ -800,49 +831,68 @@ func renderFilesXML(files map[string]string, filter []string) string {
 	}
 	sort.Strings(selected)
 
-	var sb strings.Builder
-	sb.WriteString("<Files>")
-	if len(selected) > 0 {
-		for _, path := range selected {
-			sb.WriteString("\n  <File path=\"")
-			sb.WriteString(escapeXMLAttr(path))
-			sb.WriteString("\">")
-			sb.WriteString(toCDATA(files[path]))
-			sb.WriteString("</File>")
-		}
-		sb.WriteString("\n")
+	list := make([]fileXML, 0, len(selected))
+	for _, p := range selected {
+		list = append(list, fileXML{Path: p, Content: files[p]})
 	}
-	sb.WriteString("</Files>")
-	return sb.String()
+	return filesXML{Files: list}
+}
+
+func renderFilesXML(files map[string]string, filter []string) string {
+	payload := buildFilesXML(files, filter)
+	out, err := xml.MarshalIndent(payload, "", "  ")
+	if err != nil {
+		return "<Files/>"
+	}
+	return string(out)
+}
+
+// LastTest XML support
+
+type stdioXML struct {
+	Truncated bool   `xml:"truncated,attr"`
+	Content   string `xml:",chardata"`
+}
+
+type lastTestXML struct {
+	XMLName     xml.Name `xml:"LastTest"`
+	Ran         bool     `xml:"ran,attr"`
+	ExitCode    int      `xml:"exit_code,attr,omitempty"`
+	DurationMs  int64    `xml:"duration_ms,attr,omitempty"`
+	TimedOut    bool     `xml:"timed_out,attr,omitempty"`
+	StartedAt   string   `xml:"started_at,attr,omitempty"`
+	CompletedAt string   `xml:"completed_at,attr,omitempty"`
+
+	Command string    `xml:"Command,omitempty"`
+	Stdout  *stdioXML `xml:"Stdout,omitempty"`
+	Stderr  *stdioXML `xml:"Stderr,omitempty"`
+}
+
+func buildLastTestXML(outcome *testOutcome) lastTestXML {
+	if outcome == nil || !outcome.Ran {
+		return lastTestXML{Ran: false}
+	}
+	lt := lastTestXML{
+		Ran:         true,
+		ExitCode:    outcome.ExitCode,
+		DurationMs:  outcome.Duration.Milliseconds(),
+		TimedOut:    outcome.TimedOut,
+		StartedAt:   outcome.StartedAt.Format(time.RFC3339),
+		CompletedAt: outcome.CompletedAt.Format(time.RFC3339),
+		Command:     outcome.Command,
+	}
+	lt.Stdout = &stdioXML{Truncated: outcome.StdoutTruncated, Content: outcome.Stdout}
+	lt.Stderr = &stdioXML{Truncated: outcome.StderrTruncated, Content: outcome.Stderr}
+	return lt
 }
 
 func renderLastTestXML(outcome *testOutcome) string {
-	if outcome == nil || !outcome.Ran {
-		return "<LastTest ran=\"false\" />"
+	payload := buildLastTestXML(outcome)
+	out, err := xml.MarshalIndent(payload, "", "  ")
+	if err != nil {
+		return "<LastTest ran=\"false\"/>"
 	}
-	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf(
-		"<LastTest ran=\"true\" exit_code=\"%d\" duration_ms=\"%d\" timed_out=\"%t\" started_at=\"%s\" completed_at=\"%s\">",
-		outcome.ExitCode,
-		outcome.Duration.Milliseconds(),
-		outcome.TimedOut,
-		outcome.StartedAt.Format(time.RFC3339),
-		outcome.CompletedAt.Format(time.RFC3339),
-	))
-	sb.WriteString("\n  <Command>")
-	sb.WriteString(toCDATA(outcome.Command))
-	sb.WriteString("</Command>")
-	sb.WriteString("\n  <Stdout truncated=\"")
-	sb.WriteString(fmt.Sprintf("%t", outcome.StdoutTruncated))
-	sb.WriteString("\">")
-	sb.WriteString(toCDATA(outcome.Stdout))
-	sb.WriteString("</Stdout>")
-	sb.WriteString("\n  <Stderr truncated=\"")
-	sb.WriteString(fmt.Sprintf("%t", outcome.StderrTruncated))
-	sb.WriteString("\">")
-	sb.WriteString(toCDATA(outcome.Stderr))
-	sb.WriteString("</Stderr>\n</LastTest>")
-	return sb.String()
+	return string(out)
 }
 
 func indentBlock(block, indent string) string {
@@ -865,7 +915,9 @@ func toCDATA(content string) string {
 }
 
 func escapeXMLAttr(value string) string {
-	return xmlAttrEscaper.Replace(value)
+	var b strings.Builder
+	xml.EscapeText(&b, []byte(value))
+	return b.String()
 }
 
 func clipString(input string, limit int) (string, bool) {
