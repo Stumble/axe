@@ -8,9 +8,7 @@ import (
 	"io"
 	"log"
 	"os"
-	"time"
 
-	clc "github.com/cloudwego/eino-ext/callbacks/cozeloop"
 	"github.com/cloudwego/eino-ext/components/model/openai"
 	"github.com/cloudwego/eino/callbacks"
 	"github.com/cloudwego/eino/components/model"
@@ -19,15 +17,14 @@ import (
 	"github.com/cloudwego/eino/flow/agent"
 	"github.com/cloudwego/eino/flow/agent/react"
 	"github.com/cloudwego/eino/schema"
-	"github.com/coze-dev/cozeloop-go"
 
 	"github.com/cloudwego/eino-examples/flow/agent/react/tools"
 )
 
 func newChatModel(ctx context.Context) model.ToolCallingChatModel {
-	openaiAPIKey := os.Getenv("OPENAI_API_KEY")
-	openaiModel := os.Getenv("OPENAI_MODEL_NAME")
-	openaiBaseURL := os.Getenv("OPENAI_BASE_URL")
+	openaiAPIKey := os.Getenv("OAI_API_KEY")
+	openaiModel := os.Getenv("OAI_MODEL")
+	openaiBaseURL := os.Getenv("OAI_BASE_URL")
 
 	var cm model.ToolCallingChatModel
 	var err error
@@ -44,32 +41,8 @@ func newChatModel(ctx context.Context) model.ToolCallingChatModel {
 	return cm
 }
 
-func newCozeloopCallback(ctx context.Context) callbacks.Handler {
-	cozeloopApiToken := os.Getenv("COZELOOP_API_TOKEN")
-	cozeloopWorkspaceID := os.Getenv("COZELOOP_WORKSPACE_ID")
-	if cozeloopApiToken != "" && cozeloopWorkspaceID != "" {
-		client, err := cozeloop.NewClient(
-			cozeloop.WithAPIToken(cozeloopApiToken),
-			cozeloop.WithWorkspaceID(cozeloopWorkspaceID),
-		)
-		if err != nil {
-			panic(err)
-		}
-		defer client.Close(ctx)
-		return clc.NewLoopHandler(client)
-	}
-	return nil
-}
-
 func main() {
 	ctx := context.Background()
-	handlers := []callbacks.Handler{
-		newCozeloopCallback(ctx),
-	}
-	// todo: skip nil
-	handlers = append(handlers, newCozeloopCallback(ctx))
-	callbacks.AppendGlobalHandlers(handlers...)
-
 	model := newChatModel(ctx)
 
 	// prepare tools
@@ -113,26 +86,26 @@ func main() {
 
 	defer sr.Close() // remember to close the stream
 
-	log.Printf("\n\n===== start streaming =====\n\n")
+	// log.Printf("\n\n===== start streaming =====\n\n")
 
-	for {
-		msg, err := sr.Recv()
-		if err != nil {
-			if errors.Is(err, io.EOF) {
-				// finish
-				break
-			}
-			// error
-			log.Printf("failed to recv: %v", err)
-			return
-		}
+	// for {
+	// 	msg, err := sr.Recv()
+	// 	if err != nil {
+	// 		if errors.Is(err, io.EOF) {
+	// 			// finish
+	// 			break
+	// 		}
+	// 		// error
+	// 		log.Printf("failed to recv: %v", err)
+	// 		return
+	// 	}
 
-		// 打字机打印
-		log.Printf("%v", msg.Content)
-	}
+	// 	// 打字机打印
+	// 	log.Printf("%v", msg.Content)
+	// }
 
-	log.Printf("\n\n===== finished =====\n")
-	time.Sleep(2 * time.Second)
+	// log.Printf("\n\n===== finished =====\n")
+	// time.Sleep(2 * time.Second)
 }
 
 type LoggerCallback struct {
@@ -163,6 +136,7 @@ func (cb *LoggerCallback) OnEndWithStreamOutput(ctx context.Context, info *callb
 	output *schema.StreamReader[callbacks.CallbackOutput]) context.Context {
 
 	var graphInfoName = react.GraphName
+	fmt.Println("graphInfoName", graphInfoName)
 
 	go func() {
 		defer func() {
@@ -191,9 +165,9 @@ func (cb *LoggerCallback) OnEndWithStreamOutput(ctx context.Context, info *callb
 				return
 			}
 
-			if info.Name == graphInfoName { // 仅打印 graph 的输出, 否则每个 stream 节点的输出都会打印一遍
-				fmt.Printf("%s: %s\n", info.Name, string(s))
-			}
+			// if info.Name == graphInfoName { // 仅打印 graph 的输出, 否则每个 stream 节点的输出都会打印一遍
+			fmt.Printf("XXXXXXXXXXXXXXX %s: %s\n", info.Name, string(s))
+			// }
 		}
 
 	}()

@@ -1,7 +1,13 @@
 package main
 
 import (
+	"context"
+	"log"
+
+	"github.com/rs/zerolog"
 	"github.com/stumble/axe"
+	cc "github.com/stumble/axe/code/container"
+	clitool "github.com/stumble/axe/tools/cli"
 )
 
 var instruction = `
@@ -17,11 +23,22 @@ You are not allowed to change the code under test.
 `
 
 func main() {
-	runner := axe.Runner{
-		Instruction: instruction,
-		Files:       axe.MustLoadFiles("demo/*"),
-		Test:        "go test -v",
-		Model:       "gpt-4o",
+	zerolog.SetGlobalLevel(zerolog.InfoLevel)
+	runner := axe.NewRunner(
+		"demo/.axe_history.xml",
+		[]string{instruction},
+		cc.MustNewCodeContainerFromFS("demo", []string{"add.go", "add_test.go"}),
+		axe.WithTools([]clitool.Definition{
+			{
+				Name:    "run_tests",
+				Desc:    "Run the tests",
+				Command: "go test -v",
+			},
+		}),
+		axe.WithModel(axe.ModelGPT4o),
+	)
+	err := runner.Run(context.Background(), true)
+	if err != nil {
+		log.Fatalf("failed to run: %v", err)
 	}
-	runner.Run()
 }
