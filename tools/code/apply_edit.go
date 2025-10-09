@@ -53,37 +53,40 @@ func (t *ApplyEditTool) Info(ctx context.Context) (*schema.ToolInfo, error) {
 }
 
 // InvokableRun applies the provided CodeOutput XML to the container and writes changed files to disk.
+// Invokable don't return error unless it is unrecoverable. It just returns the error as message to the model and let
+// the model to handle it.
 func (t *ApplyEditTool) InvokableRun(ctx context.Context, argumentsInJSON string, _ ...tool.Option) (string, error) {
 	log.Debug().Msgf("apply_edit: applying edits: %s", argumentsInJSON)
 	if strings.TrimSpace(argumentsInJSON) == "" {
-		return "", errors.New("apply_edit: missing arguments")
+		return "apply_edit: missing arguments, empty string", nil
 	}
 	if t == nil || t.Code == nil {
+		// fatal
 		return "", errors.New("apply_edit: tool not initialized with a CodeContainer")
 	}
 
 	var req ApplyEditRequest
 	if err := json.Unmarshal([]byte(argumentsInJSON), &req); err != nil {
-		return "", fmt.Errorf("apply_edit: parse arguments: %w", err)
+		return fmt.Sprintf("apply_edit: failed to parse arguments: %v", err), nil
 	}
 
 	xmlPayload := strings.TrimSpace(req.CodeOutput)
 	if xmlPayload == "" {
-		return "", errors.New("apply_edit: code_output is required")
+		return "apply_edit: xml payload is empty", nil
 	}
 
 	co, err := cont.ParseCodeOutput(xmlPayload)
 	if err != nil {
-		return "", fmt.Errorf("apply_edit: parse CodeOutput XML: %w", err)
+		return fmt.Sprintf("apply_edit: failed to parse CodeOutput XML: %v", err), nil
 	}
 
 	changed, err := t.Code.Apply(co)
 	if err != nil {
-		return "", fmt.Errorf("apply_edit: apply edits: %w", err)
+		return fmt.Sprintf("apply_edit: failed to apply edits: %v", err), nil
 	}
 
 	if len(changed) == 0 {
-		return "No changes to apply.", nil
+		return "apply_edit: no changes to apply", nil
 	}
 
 	log.Info().Msgf("apply_edit: changed files: %s", strings.Join(changed, ", "))
@@ -91,7 +94,7 @@ func (t *ApplyEditTool) InvokableRun(ctx context.Context, argumentsInJSON string
 	// Persist only the changed files. Empty baseDir writes paths as-is (absolute or relative).
 	written, err := t.Code.WriteToFiles(changed)
 	if err != nil {
-		return "", fmt.Errorf("apply_edit: write files: %w", err)
+		return fmt.Sprintf("failed to write files: %v", err), nil
 	}
 
 	log.Info().Msgf("apply_edit: written files: %s", strings.Join(written, ", "))
