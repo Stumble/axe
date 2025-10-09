@@ -2,7 +2,6 @@ package axe
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -13,12 +12,10 @@ import (
 	"github.com/rs/zerolog/log"
 
 	einoopenai "github.com/cloudwego/eino-ext/components/model/openai"
-	"github.com/cloudwego/eino/callbacks"
 	"github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/components/prompt"
 	"github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/compose"
-	"github.com/cloudwego/eino/flow/agent"
 	"github.com/cloudwego/eino/flow/agent/react"
 	"github.com/cloudwego/eino/schema"
 
@@ -130,7 +127,7 @@ func (r *Runner) Run(ctx context.Context, loadDotEnv bool) error {
 	}
 
 	agentCfg := &react.AgentConfig{
-		StreamToolCallChecker: toolCallChecker,
+		StreamToolCallChecker: r.toolCallChecker, // somehow this blocks the logger callback from logging anything....
 		ToolCallingModel: chatModel,
 		ToolsConfig: compose.ToolsNodeConfig{
 			Tools:               tools,
@@ -197,10 +194,7 @@ func (r *Runner) Run(ctx context.Context, loadDotEnv bool) error {
 
 	var builder strings.Builder
 	var msgReader *schema.StreamReader[*schema.Message]
-	opt := []agent.AgentOption{
-		agent.WithComposeOptions(compose.WithCallbacks(&LoggerCallback{Output: r.Output})),
-	}
-	msgReader, err = agt.Stream(ctx, messages, opt...)
+	msgReader, err = agt.Stream(ctx, messages)
 	if err != nil {
 		return fmt.Errorf("axe: agent execution failed: %w", err)
 	}
@@ -287,118 +281,48 @@ CodeInput: {{ code_input }}`
 	return template.Format(ctx, vars)
 }
 
-// LoggerCallback logs detailed lifecycle and streaming information from the agent run.
-type LoggerCallback struct {
-	callbacks.HandlerBuilder
-	Output chan<- string
-}
-
-func (cb *LoggerCallback) OnStart(ctx context.Context, info *callbacks.RunInfo, input callbacks.CallbackInput) context.Context {
-	data, _ := json.MarshalIndent(input, "", "  ")
-	log.Debug().Str("name", info.Name).RawJSON("input", data).Msg("OnStart")
-	// cb.Output <- fmt.Sprintf("(%s) On Start: %s\n", info.Name, string(data))
-	return ctx
-}
-
-func (cb *LoggerCallback) OnEnd(ctx context.Context, info *callbacks.RunInfo, output callbacks.CallbackOutput) context.Context {
-	data, _ := json.MarshalIndent(output, "", "  ")
-	log.Debug().Str("name", info.Name).RawJSON("output", data).Msg("OnEnd")
-	cb.Output <- fmt.Sprintf("(%s) On End: %s\n", info.Name, string(data))
-	return ctx
-}
-
-func (cb *LoggerCallback) OnError(ctx context.Context, info *callbacks.RunInfo, err error) context.Context {
-	log.Error().Str("name", info.Name).Err(err).Msg("OnError")
-	return ctx
-}
-
-func (cb *LoggerCallback) OnEndWithStreamOutput(ctx context.Context, info *callbacks.RunInfo, output *schema.StreamReader[callbacks.CallbackOutput]) context.Context {
-	if info.Name != react.GraphName {
-		return ctx
-	}
-	log.Debug().Str("name", info.Name).Msg("CallingOnEndWithStreamOutput")
-	go func() {
-		defer func() { _ = recover() }()
-		defer output.Close()
-		for {
-			frame, err := output.Recv()
-			if errors.Is(err, io.EOF) {
-				break
-			}
-			if err != nil {
-				log.Error().Str("name", info.Name).Err(err).Msg("stream recv error")
-				return
-			}
-			data, err := json.Marshal(frame)
-			if err != nil {
-				log.Error().Str("name", info.Name).Err(err).Msg("stream marshal error")
-				return
-			}
-			// Print out type of frame
-			log.Debug().Str("name", info.Name).Str("type", fmt.Sprintf("%T", frame)).Msg("OnEndStream")
-			log.Debug().Str("name", info.Name).RawJSON("stream_frame", data).Msg("OnEndStream")
-			// (ReActAgent) On End Stream: {"role":"assistant","content":"","tool_calls":[{"index":0,"id":"call_L19OTaP8nB9ESfSt4b2Vt4Jj","type":"function","function":{"name":"apply_edit"}}],"response_meta":{}}
-			switch frame := frame.(type) {
-			case *schema.Message:
-				if frame.Content != "" {
-					cb.Output <- frame.Content
-				} else if len(frame.ToolCalls) > 0 {
-					for _, toolCall := range frame.ToolCalls {
-						if toolCall.ID != "" {
-							cb.Output <- fmt.Sprintf("\ntool call id: %s\n", toolCall.ID)
-						}
-						if toolCall.Function.Name != "" {
-							cb.Output <- fmt.Sprintf("tool call function name: %s\n", toolCall.Function.Name)
-							cb.Output <- "Arguments:\n"
-						}
-						cb.Output <- toolCall.Function.Arguments
-					}
-				}
-			default:
-				log.Debug().Str("name", info.Name).Str("type", fmt.Sprintf("%T", frame)).Msg("OnEndStream")
-			}
-		}
-	}()
-	return ctx
-}
-
-func (cb *LoggerCallback) OnStartWithStreamInput(ctx context.Context, info *callbacks.RunInfo, input *schema.StreamReader[callbacks.CallbackInput]) context.Context {
-	go func() {
-		defer func() { _ = recover() }()
-		defer input.Close()
-		for {
-			frame, err := input.Recv()
-			if errors.Is(err, io.EOF) {
-				break
-			}
-			if err != nil {
-				log.Error().Str("name", info.Name).Err(err).Msg("stream send error")
-				return
-			}
-			data, _ := json.Marshal(frame)
-			log.Debug().Str("name", info.Name).RawJSON("stream_input", data).Msg("OnStartStream")
-			// cb.Output <- fmt.Sprintf("(%s) On Start Stream: %s\n", info.Name, string(data))
-		}
-	}()
-	return ctx
-}
-
-func toolCallChecker(_ context.Context, sr *schema.StreamReader[*schema.Message]) (bool, error) {
+// XXX(yxia): due to eino's strange behavior, this function serves two purposes:
+// 1. check if the model is outputting tool calls
+// 2. stream out messages from the model.
+func (r *Runner) toolCallChecker(_ context.Context, sr *schema.StreamReader[*schema.Message]) (bool, error) {
     defer sr.Close()
+		hasToolCalls := false
     for {
        msg, err := sr.Recv()
        if err != nil {
           if errors.Is(err, io.EOF) {
-             // finish
              break
           }
-
           return false, err
        }
 
        if len(msg.ToolCalls) > 0 {
-          return true, nil
+          hasToolCalls = true
        }
+			r.streamFrame(r.Output, msg)
     }
-    return false, nil
+    return hasToolCalls, nil
+}
+
+func (r *Runner) streamFrame(out chan<- string, frame any) {
+	switch frame := frame.(type) {
+	case *schema.Message:
+		if frame.Content != "" {
+			out <- frame.Content
+		} else if len(frame.ToolCalls) > 0 {
+			for _, toolCall := range frame.ToolCalls {
+				if toolCall.ID != "" {
+					out <- fmt.Sprintf("\ntool call id: %s\n", toolCall.ID)
+				}
+				if toolCall.Function.Name != "" {
+					out <- fmt.Sprintf("tool call function name: %s\n", toolCall.Function.Name)
+					out <- "Arguments:\n"
+				}
+				out <- toolCall.Function.Arguments
+			}
+		}
+	default:
+		log.Debug().Str("type", fmt.Sprintf("%T", frame)).Msg("stream frame")
+		log.Debug().Any("frame", frame).Msg("stream frame")
+	}
 }

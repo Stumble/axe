@@ -4,12 +4,10 @@ go 1.24.5
 
 require (
 	github.com/cloudwego/eino v0.5.4
-	github.com/cloudwego/eino-examples v0.0.0-20250929123132-bbbae0931948
 	github.com/cloudwego/eino-ext/components/model/openai v0.0.0-20250826125654-37d4a5029810
 	github.com/joho/godotenv v1.5.1
 	github.com/mattn/go-shellwords v1.0.12
 	github.com/rs/zerolog v1.34.0
-	github.com/sashabaranov/go-openai v1.41.2
 	github.com/stretchr/testify v1.10.0
 )
 
@@ -49,11 +47,12 @@ require (
 	github.com/sirupsen/logrus v1.9.3 // indirect
 	github.com/slongfield/pyfmt v0.0.0-20220222012616-ea85ff4c361f // indirect
 	github.com/twitchyliquid64/golang-asm v0.15.1 // indirect
+	github.com/ugorji/go/codec v1.3.0 // indirect
 	github.com/wk8/go-ordered-map/v2 v2.1.8 // indirect
 	github.com/yargevad/filepathx v1.0.0 // indirect
 	golang.org/x/arch v0.19.0 // indirect
+	golang.org/x/crypto v0.40.0 // indirect
 	golang.org/x/exp v0.0.0-20250718183923-645b1fa84792 // indirect
 	golang.org/x/sys v0.34.0 // indirect
-	golang.org/x/term v0.33.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
