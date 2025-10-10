@@ -120,6 +120,11 @@ func (r *Runner) Run(ctx context.Context, loadDotEnv bool) error {
 		&code.ApplyEditTool{Code: r.State.Code}, // apply code output to code container, code output is the parameter
 		&finalize.FinalizeTool{},                // finalize the task
 	}
+	
+	// add cli tools
+	for _, tool := range r.Tools {
+		tools = append(tools, &clitool.CliTool{Def: tool})
+	}
 
 	maxSteps := r.MaxSteps
 	if maxSteps <= 0 {

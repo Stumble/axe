@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"sort"
@@ -14,18 +15,45 @@ import (
 	"github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/schema"
 	"github.com/mattn/go-shellwords"
+	"github.com/rs/zerolog/log"
 )
 
 // Definition describes a CLI tool that can be exposed to the agent.
 // Name must be unique across all tools.
 // Command is executed without a shell by default via SubprocessExecutor.
-// TimeoutSeconds, if >0, overrides default timeouts for this tool.
 type Definition struct {
 	Name    string
 	Command string
 	Desc    string
-	Env     map[string]string
-	Timeout time.Duration
+	Args    []string // parsed from command
+	Env     map[string]string // merged with envs from command, env map has higher precedence than envs from command.
+}
+
+func MustNewDefinition(name, command, desc string, env map[string]string) Definition {
+	def, err := NewDefinition(name, command, desc, env)
+	if err != nil {
+		panic(err)
+	}
+	return def
+}
+
+func NewDefinition(name, command, desc string, env map[string]string) (Definition, error) {
+	// Parse base command into env assignments and argv
+	cmdEnvs, args, err := shellwords.ParseWithEnvs(command)
+	if err != nil {
+		return Definition{}, err
+	}
+
+	// Merge envs: definition env overlaid by command-line env assignments
+	env = MergeEnv(parseEnvKVs(cmdEnvs), env)
+
+	return Definition{
+		Name:    name,
+		Command: command,
+		Desc:    desc,
+		Args:    args,
+		Env:     env,
+	}, nil
 }
 
 // Outcome describes the result of a subprocess execution.
@@ -36,9 +64,6 @@ type Outcome struct {
 	Duration        time.Duration
 	Stdout          string
 	Stderr          string
-	StdoutTruncated bool
-	StderrTruncated bool
-	TimedOut        bool
 	StartedAt       time.Time
 	CompletedAt     time.Time
 }
@@ -46,15 +71,8 @@ type Outcome struct {
 // SubprocessExecutor runs commands using exec.CommandContext without a shell.
 type SubprocessExecutor struct{}
 
-func (e *SubprocessExecutor) Execute(ctx context.Context, argv []string, env map[string]string, workdir string, timeout time.Duration) (Outcome, error) {
-	if len(argv) == 0 {
-		return Outcome{}, errors.New("clitool: empty argv")
-	}
-
-	runCtx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
-
-	cmd := exec.CommandContext(runCtx, argv[0], argv[1:]...)
+func (e *SubprocessExecutor) Execute(ctx context.Context, argv []string, env map[string]string, workdir string) (Outcome, error) {
+	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
 	cmd.Dir = workdir
 	cmd.Env = append(os.Environ(), flattenEnv(env)...)
 
@@ -66,14 +84,13 @@ func (e *SubprocessExecutor) Execute(ctx context.Context, argv []string, env map
 	err := cmd.Run()
 	duration := time.Since(start)
 
-	timedOut := errors.Is(runCtx.Err(), context.DeadlineExceeded)
 	exitCode := 0
-
+	isTimedOut := errors.Is(ctx.Err(), context.DeadlineExceeded)
 	var exitErr *exec.ExitError
 	if err != nil {
 		if errors.As(err, &exitErr) {
 			exitCode = exitErr.ExitCode()
-		} else if timedOut {
+		} else if isTimedOut {
 			exitCode = -1
 		} else {
 			exitCode = 1
@@ -83,7 +100,7 @@ func (e *SubprocessExecutor) Execute(ctx context.Context, argv []string, env map
 	stdout := stdoutBuf.String()
 	stderr := stderrBuf.String()
 
-	if err != nil && exitErr == nil && !timedOut {
+	if err != nil && exitErr == nil && !isTimedOut {
 		if stderr != "" && !strings.HasSuffix(stderr, "\n") {
 			stderr += "\n"
 		}
@@ -97,45 +114,10 @@ func (e *SubprocessExecutor) Execute(ctx context.Context, argv []string, env map
 		Duration:    duration,
 		Stdout:      justClipString(stdout, 3000),
 		Stderr:      justClipString(stderr, 3000),
-		TimedOut:    timedOut,
 		StartedAt:   start,
 		CompletedAt: start.Add(duration),
 	}
 	return outcome, nil
-}
-
-// RunDefinition executes a tool definition with request overrides.
-func RunDefinition(ctx context.Context, def Definition, workdir string, reqEnv map[string]string) (Outcome, error) {
-	// Parse command with env assignments support (e.g., "FOO=bar cmd --flag")
-	envs, argv, err := shellwords.ParseWithEnvs(def.Command)
-	if err != nil {
-		return Outcome{}, err
-	}
-	if len(argv) == 0 {
-		return Outcome{}, errors.New("clitool: empty command")
-	}
-
-	exec := &SubprocessExecutor{}
-	cmdEnv := MergeEnv(def.Env, parseEnvKVs(envs))
-	cmdEnv = MergeEnv(cmdEnv, reqEnv)
-	return exec.Execute(ctx, argv, cmdEnv, workdir, def.Timeout)
-}
-
-// OutcomeJSON returns a JSON-encoded payload with execution details.
-func OutcomeJSON(out Outcome, toolName, workdir string) (string, error) {
-	// TODO: truncate stdout and stderr if they are too long
-	payload := map[string]any{
-		"tool":              toolName,
-		"exit_code":         out.ExitCode,
-		"stdout":            out.Stdout,
-		"stderr":            out.Stderr,
-		"working_directory": workdir,
-	}
-	data, err := json.MarshalIndent(payload, "", "  ")
-	if err != nil {
-		return "", err
-	}
-	return string(data), nil
 }
 
 // ---------------------- Tool integration for LLM invocation ----------------------
@@ -157,17 +139,9 @@ type CliToolRequest struct {
 
 // Info describes the tool to the model.
 func (t *CliTool) Info(ctx context.Context) (*schema.ToolInfo, error) {
-	name := t.Def.Name
-	if strings.TrimSpace(name) == "" {
-		name = "cli_tool"
-	}
-	desc := t.Def.Desc
-	if strings.TrimSpace(desc) == "" {
-		desc = "Run a configured CLI command with optional args."
-	}
 	return &schema.ToolInfo{
-		Name: name,
-		Desc: desc,
+		Name: t.Def.Name,
+		Desc: t.Def.Desc,
 		ParamsOneOf: schema.NewParamsOneOfByParams(map[string]*schema.ParameterInfo{
 			"args": {
 				Type:     schema.Array,
@@ -180,45 +154,34 @@ func (t *CliTool) Info(ctx context.Context) (*schema.ToolInfo, error) {
 
 // InvokableRun executes the configured command with request overrides and returns a JSON outcome.
 func (t *CliTool) InvokableRun(ctx context.Context, argumentsInJSON string, _ ...tool.Option) (string, error) {
-	if t == nil {
-		return "", errors.New("clitool: tool is nil")
-	}
+	log.Debug().Msgf("clitool: executing command: %s with arguments: %s", t.Def.Command, argumentsInJSON)
 	if strings.TrimSpace(argumentsInJSON) == "" {
 		argumentsInJSON = "{}"
 	}
 
 	var req CliToolRequest
 	if err := json.Unmarshal([]byte(argumentsInJSON), &req); err != nil {
-		return "", errors.New("clitool: invalid arguments: " + err.Error())
+		return fmt.Sprintf("clitool: invalid arguments: %v", err), nil
 	}
 
-	// Parse base command into env assignments and argv
-	envs, baseArgv, err := shellwords.ParseWithEnvs(t.Def.Command)
-	if err != nil {
-		return "", err
-	}
-	argv := append(append([]string{}, baseArgv...), req.Args...)
+	argv := append(append([]string{}, t.Def.Args...), req.Args...)
 	if len(argv) == 0 {
 		return "", errors.New("clitool: empty command")
 	}
 
-	// Merge envs: definition env overlaid by command-line env assignments
-	env := MergeEnv(t.Def.Env, parseEnvKVs(envs))
-
-	// Resolve workdir and timeout (no per-call override here)
+	// Resolve workdir (no per-call override here)
 	workdir := t.Workdir
-	timeout := t.Def.Timeout
 
 	// Execute
 	exec := &SubprocessExecutor{}
-	outcome, _ := exec.Execute(ctx, argv, env, workdir, timeout)
+	outcome, _ := exec.Execute(ctx, argv, t.Def.Env, workdir)
 
 	// Render outcome as JSON string for model consumption
-	payload, jerr := OutcomeJSON(outcome, t.Def.Name, workdir)
+	payload, jerr := json.Marshal(outcome)
 	if jerr != nil {
 		return "", jerr
 	}
-	return payload, nil
+	return string(payload), nil
 }
 
 func parseEnvKVs(pairs []string) map[string]string {

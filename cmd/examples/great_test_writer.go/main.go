@@ -20,6 +20,8 @@ You review go test code to check that if it follows the following standards:
 
 If it does not follow the standards, you need to fix it. Note only fix the test code, not the code under test.
 You are not allowed to change the code under test.
+
+Run the tests to see if it works.
 `
 
 func main() {
@@ -29,11 +31,7 @@ func main() {
 		[]string{instruction},
 		cc.MustNewCodeContainerFromFS("demo", []string{"add.go", "add_test.go"}),
 		axe.WithTools([]clitool.Definition{
-			{
-				Name:    "run_tests",
-				Desc:    "Run the tests",
-				Command: "go test -v",
-			},
+			clitool.MustNewDefinition("run_tests", "go test -v", "Run the tests", nil),
 		}),
 		axe.WithModel(axe.ModelGPT4o),
 	)
