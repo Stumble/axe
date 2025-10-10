@@ -174,8 +174,8 @@ func TestCliTool_InvokableRun_SuccessArgsAndEnvPrecedence(t *testing.T) {
 		"",
 		map[string]string{"FOO": "base"},
 	)}
-    dir := t.TempDir()
-    args := map[string]any{"args": []string{"ARGVAL"}, "workdir": dir}
+	dir := t.TempDir()
+	args := map[string]any{"args": []string{"ARGVAL"}, "workdir": dir}
 	data, _ := json.Marshal(args)
 	resp, err := tool.InvokableRun(ctx, string(data))
 	require.NoError(t, err)
@@ -193,22 +193,22 @@ func TestCliTool_InvokableRun_InvalidJSON(t *testing.T) {
 }
 
 func TestCliTool_InvokableRun_MissingWorkdir_ReturnsMessage(t *testing.T) {
-    ctx := context.Background()
-    tool := &CliTool{Def: MustNewDefinition("pwd", "/bin/sh -c pwd", "", nil)}
-    // Missing workdir should return a helpful message and no error
-    resp, err := tool.InvokableRun(ctx, "{}")
-    require.NoError(t, err)
-    assert.Contains(t, resp, "workdir is required")
+	ctx := context.Background()
+	tool := &CliTool{Def: MustNewDefinition("pwd", "/bin/sh -c pwd", "", nil)}
+	// Missing workdir should return a helpful message and no error
+	resp, err := tool.InvokableRun(ctx, "{}")
+	require.NoError(t, err)
+	assert.Contains(t, resp, "workdir is required")
 }
 
 func TestCliTool_InvokableRun_TimeoutExitCode(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
 	defer cancel()
-    tool := &CliTool{Def: MustNewDefinition("sleep", "/bin/sh -c 'sleep 2'", "", nil)}
-    dir := t.TempDir()
-    args := map[string]any{"workdir": dir}
-    data, _ := json.Marshal(args)
-    resp, err := tool.InvokableRun(ctx, string(data))
+	tool := &CliTool{Def: MustNewDefinition("sleep", "/bin/sh -c 'sleep 2'", "", nil)}
+	dir := t.TempDir()
+	args := map[string]any{"workdir": dir}
+	data, _ := json.Marshal(args)
+	resp, err := tool.InvokableRun(ctx, string(data))
 	require.NoError(t, err)
 	var m map[string]any
 	require.NoError(t, json.Unmarshal([]byte(resp), &m))
@@ -220,9 +220,9 @@ func TestCliTool_InvokableRun_WorkdirUsed(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()
 	tool := &CliTool{Def: MustNewDefinition("pwd", "/bin/sh -c pwd", "", nil)}
-    args := map[string]any{"workdir": dir}
-    data, _ := json.Marshal(args)
-    resp, err := tool.InvokableRun(ctx, string(data))
+	args := map[string]any{"workdir": dir}
+	data, _ := json.Marshal(args)
+	resp, err := tool.InvokableRun(ctx, string(data))
 	require.NoError(t, err)
 	var m map[string]any
 	require.NoError(t, json.Unmarshal([]byte(resp), &m))
@@ -231,28 +231,28 @@ func TestCliTool_InvokableRun_WorkdirUsed(t *testing.T) {
 }
 
 func TestCliTool_InvokableRun_WorkdirScriptEnvMerge(t *testing.T) {
-    ctx := context.Background()
-    dir := t.TempDir()
-    scriptPath := filepath.Join(dir, "script.sh")
-    // Script prints FOO value
-    script := "#!/bin/sh\nprintf %s \"$FOO\""
-    require.NoError(t, os.WriteFile(scriptPath, []byte(script), 0o755))
-    require.NoError(t, os.Chmod(scriptPath, 0o755))
+	ctx := context.Background()
+	dir := t.TempDir()
+	scriptPath := filepath.Join(dir, "script.sh")
+	// Script prints FOO value
+	script := "#!/bin/sh\nprintf %s \"$FOO\""
+	require.NoError(t, os.WriteFile(scriptPath, []byte(script), 0o755))
+	require.NoError(t, os.Chmod(scriptPath, 0o755))
 
-    tool := &CliTool{Def: MustNewDefinition(
-        "runscript",
-        "/bin/sh -c './script.sh'",
-        "",
-        map[string]string{"FOO": "base"},
-    )}
+	tool := &CliTool{Def: MustNewDefinition(
+		"runscript",
+		"/bin/sh -c './script.sh'",
+		"",
+		map[string]string{"FOO": "base"},
+	)}
 
-    args := map[string]any{"workdir": dir}
-    data, _ := json.Marshal(args)
-    resp, err := tool.InvokableRun(ctx, string(data))
-    require.NoError(t, err)
-    var m map[string]any
-    require.NoError(t, json.Unmarshal([]byte(resp), &m))
-    assert.Equal(t, "base", m["Stdout"])
+	args := map[string]any{"workdir": dir}
+	data, _ := json.Marshal(args)
+	resp, err := tool.InvokableRun(ctx, string(data))
+	require.NoError(t, err)
+	var m map[string]any
+	require.NoError(t, json.Unmarshal([]byte(resp), &m))
+	assert.Equal(t, "base", m["Stdout"])
 }
 
 // Removed empty argv and nil receiver tests; current implementation assumes non-nil receiver
@@ -305,10 +305,46 @@ func TestDefinition_InlineEnvPersistsWhenNotOverridden(t *testing.T) {
 }
 
 func TestCliTool_InvokableRun_EmptyArgumentsString(t *testing.T) {
-    ctx := context.Background()
-    tool := &CliTool{Def: MustNewDefinition("ok", "/bin/sh -c 'printf %s OK'", "", nil)}
-    // Empty arguments string becomes "{}"; since workdir is required, expect message
-    resp, err := tool.InvokableRun(ctx, "")
-    require.NoError(t, err)
-    assert.Contains(t, resp, "workdir is required")
+	ctx := context.Background()
+	tool := &CliTool{Def: MustNewDefinition("ok", "/bin/sh -c 'printf %s OK'", "", nil)}
+	// Empty arguments string becomes "{}"; since workdir is required, expect message
+	resp, err := tool.InvokableRun(ctx, "")
+	require.NoError(t, err)
+	assert.Contains(t, resp, "workdir is required")
+}
+
+func TestOutcome_String_Success(t *testing.T) {
+	ctx := context.Background()
+	exec := &SubprocessExecutor{}
+	argv := []string{"/bin/sh", "-c", "printf %s hello"}
+	out, err := exec.Execute(ctx, argv, nil, "")
+	require.NoError(t, err)
+	s := out.String()
+	assert.Contains(t, s, "Command:")
+	assert.Contains(t, s, "Result: succeeded")
+	assert.Contains(t, s, "Duration:")
+	assert.Contains(t, s, "Stdout:")
+	assert.Contains(t, s, "hello")
+}
+
+func TestOutcome_String_NonZero(t *testing.T) {
+	ctx := context.Background()
+	exec := &SubprocessExecutor{}
+	argv := []string{"/bin/sh", "-c", "exit 7"}
+	out, err := exec.Execute(ctx, argv, nil, "")
+	require.NoError(t, err)
+	s := out.String()
+	assert.Contains(t, s, "Result: exited with code 7")
+	// No stdout section expected; stderr might be empty depending on shell
+}
+
+func TestOutcome_String_Timeout(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+	exec := &SubprocessExecutor{}
+	argv := []string{"/bin/sh", "-c", "sleep 2"}
+	out, err := exec.Execute(ctx, argv, nil, "")
+	require.NoError(t, err)
+	s := out.String()
+	assert.Contains(t, s, "Result: timed out")
 }

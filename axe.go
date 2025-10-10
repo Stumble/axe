@@ -112,7 +112,7 @@ func (r *Runner) Run(ctx context.Context, loadDotEnv bool) error {
 	if r == nil {
 		return errors.New("axe: nil runner")
 	}
-
+	r.Output = make(chan string, 4096)
 	if loadDotEnv {
 		err := godotenv.Load()
 		if err != nil {
@@ -171,6 +171,14 @@ func (r *Runner) Run(ctx context.Context, loadDotEnv bool) error {
 		ToolReturnDirectly: map[string]struct{}{finalize.FinalizeToolName: {}},
 		MessageModifier: func(ctx context.Context, input []*schema.Message) []*schema.Message {
 			// TODO: add context trimming here, e.g., remove previous code snippets.
+			if len(input) > 0 {
+				// TODO: change to log all tool calls that haven't seen responses.
+				last := input[len(input)-1]
+				if last.Role == schema.Tool {
+					log.Debug().Msgf("Tool call response: %s\n", last)
+					r.Output <- fmt.Sprintf("Tool call response: %s\n", last.Content)
+				}
+			}
 			return input
 		},
 	}
@@ -192,7 +200,6 @@ func (r *Runner) Run(ctx context.Context, loadDotEnv bool) error {
 		fmt.Printf("%s: %s\n", msg.Role, msg.Content)
 	}
 
-	r.Output = make(chan string, 4096)
 	go func() {
 		for {
 			select {
@@ -316,6 +323,7 @@ func (r *Runner) toolCallChecker(_ context.Context, sr *schema.StreamReader[*sch
 		}
 		r.streamFrame(r.Output, msg)
 	}
+	r.Output <- "\n"
 	return hasToolCalls, nil
 }
 
@@ -327,11 +335,11 @@ func (r *Runner) streamFrame(out chan<- string, frame any) {
 		} else if len(frame.ToolCalls) > 0 {
 			for _, toolCall := range frame.ToolCalls {
 				if toolCall.ID != "" {
-					out <- fmt.Sprintf("\ntool call id: %s\n", toolCall.ID)
+					out <- fmt.Sprintf("\nTool call id: %s\n", toolCall.ID)
 				}
 				if toolCall.Function.Name != "" {
-					out <- fmt.Sprintf("tool call function name: %s\n", toolCall.Function.Name)
-					out <- "Arguments:\n"
+					out <- fmt.Sprintf("Tool call function name: %s\n", toolCall.Function.Name)
+					out <- "Tool call arguments:\n"
 				}
 				out <- toolCall.Function.Arguments
 			}

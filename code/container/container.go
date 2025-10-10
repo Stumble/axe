@@ -33,17 +33,16 @@ import (
 // CodeContainer holds an in-memory mapping of file paths to contents and offers
 // helpers to render inputs, apply outputs, and persist to disk.
 type CodeContainer struct {
-	files   map[string]string
-	baseDir string
+	files map[string]string
 }
 
 // NewCodeContainer constructs a container with a copy of the provided files map.
-func NewCodeContainer(baseDir string, files map[string]string) *CodeContainer {
+func NewCodeContainer(files map[string]string) *CodeContainer {
 	copy := make(map[string]string, len(files))
 	for k, v := range files {
 		copy[k] = v
 	}
-	return &CodeContainer{baseDir: baseDir, files: copy}
+	return &CodeContainer{files: copy}
 }
 
 // MustNewCodeContainerFromFS is a helper that panics if NewCodeContainerFromFS fails.
@@ -71,9 +70,9 @@ func NewCodeContainerFromFS(baseDir string, paths []string) (*CodeContainer, err
 		if err != nil {
 			return nil, fmt.Errorf("code/context: read %s: %w", p, err)
 		}
-		files[p] = string(data)
+		files[full] = string(data)
 	}
-	return NewCodeContainer(baseDir, files), nil
+	return NewCodeContainer(files), nil
 }
 
 // Files returns a copy of the current in-memory files map.
@@ -118,18 +117,14 @@ func (c *CodeContainer) WriteToFiles(paths []string) ([]string, error) {
 		sort.Strings(toWrite)
 	}
 	for _, p := range toWrite {
-		full := p
-		if c.baseDir != "" && !filepath.IsAbs(p) {
-			full = filepath.Join(c.baseDir, p)
-		}
-		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
 			return nil, fmt.Errorf("code/context: create dir for %s: %w", p, err)
 		}
 		mode := os.FileMode(0o644)
-		if info, statErr := os.Stat(full); statErr == nil {
+		if info, statErr := os.Stat(p); statErr == nil {
 			mode = info.Mode()
 		}
-		if err := os.WriteFile(full, []byte(c.files[p]), mode); err != nil {
+		if err := os.WriteFile(p, []byte(c.files[p]), mode); err != nil {
 			return nil, fmt.Errorf("code/context: write %s: %w", p, err)
 		}
 	}

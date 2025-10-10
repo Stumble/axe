@@ -68,6 +68,43 @@ type Outcome struct {
 	CompletedAt time.Time
 }
 
+// String renders a human-readable summary of the subprocess outcome.
+func (o Outcome) String() string {
+	var b strings.Builder
+	if !o.Ran {
+		b.WriteString("Command was not executed\n")
+		return b.String()
+	}
+
+	var result string
+	switch {
+	case o.ExitCode == -1:
+		result = "timed out"
+	case o.ExitCode == 0:
+		result = "succeeded"
+	default:
+		result = fmt.Sprintf("exited with code %d", o.ExitCode)
+	}
+
+	b.WriteString(fmt.Sprintf("Command: %s\n", o.Command))
+	b.WriteString(fmt.Sprintf("Result: %s\n", result))
+	if o.Stdout != "" {
+		b.WriteString("Stdout:\n")
+		b.WriteString(o.Stdout)
+		if !strings.HasSuffix(o.Stdout, "\n") {
+			b.WriteString("\n")
+		}
+	}
+	if o.Stderr != "" {
+		b.WriteString("Stderr:\n")
+		b.WriteString(o.Stderr)
+		if !strings.HasSuffix(o.Stderr, "\n") {
+			b.WriteString("\n")
+		}
+	}
+	return b.String()
+}
+
 // SubprocessExecutor runs commands using exec.CommandContext without a shell.
 type SubprocessExecutor struct{}
 
@@ -145,13 +182,13 @@ func (t *CliTool) Info(ctx context.Context) (*schema.ToolInfo, error) {
 			"args": {
 				Type:     schema.Array,
 				ElemInfo: &schema.ParameterInfo{Type: schema.String},
-				Desc:     "Additional arguments to append to the configured command.",
+				Desc:     "Arguments to append to the configured command.",
 			},
 			"workdir": {
 				Type:     schema.String,
 				Required: true,
 				ElemInfo: &schema.ParameterInfo{Type: schema.String},
-				Desc:     "Working directory to execute the command in.",
+				Desc:     "Working directory to execute the command in. Make sure to run the command in the correct working directory if the target was not specified by using the 'args' parameter.",
 			},
 		}),
 	}, nil
@@ -178,14 +215,11 @@ func (t *CliTool) InvokableRun(ctx context.Context, argumentsInJSON string, _ ..
 
 	// Execute
 	exec := &SubprocessExecutor{}
-	outcome, _ := exec.Execute(ctx, argv, t.Def.Env, workdir)
-
-	// Render outcome as JSON string for model consumption
-	payload, jerr := json.Marshal(outcome)
-	if jerr != nil {
-		return "", jerr
+	outcome, err := exec.Execute(ctx, argv, t.Def.Env, workdir)
+	if err != nil {
+		return fmt.Sprintf("failed to execute command: %v", err), nil
 	}
-	return string(payload), nil
+	return outcome.String(), nil
 }
 
 func parseEnvKVs(pairs []string) map[string]string {

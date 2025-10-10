@@ -32,7 +32,7 @@ func main() {
 		[]string{instruction},
 		cc.MustNewCodeContainerFromFS(baseDir, []string{"add.go", "add_test.go"}), // same, relative to current wd
 		axe.WithTools([]clitool.Definition{
-			clitool.MustNewDefinition("run_tests", "go test -v", "Run the tests", nil), // command will be executed in a wd, specified by llm.
+			clitool.MustNewDefinition("go_test", "go test -v", "run tests under wd with 'go test -v'", nil), // command will be executed in a wd, specified by llm.
 		}),
 		axe.WithModel(axe.ModelGPT4o),
 	)

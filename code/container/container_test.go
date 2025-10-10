@@ -107,7 +107,7 @@ func (s *ContextSuite) TestApplyEdits_Rewrite_And_Diff() {
 }
 
 func (s *ContextSuite) TestCodeContainer_Apply_And_Files() {
-	cc := NewCodeContainer("", map[string]string{"f.js": "a\nb\nc\n", "x": "1"})
+	cc := NewCodeContainer(map[string]string{"f.js": "a\nb\nc\n", "x": "1"})
 	patch := mkPatch([]string{"a"}, []string{"b"}, []string{"B"}, []string{"c"})
 	out := CodeOutput{ApplyDiffs: []CodeOutputDiff{{Path: "f.js", Patch: patch}}, Rewrites: []CodeOutputRewrite{{Path: "x", Content: "2"}}}
 	changed, err := cc.Apply(out)
@@ -120,10 +120,20 @@ func (s *ContextSuite) TestCodeContainer_Apply_And_Files() {
 
 func (s *ContextSuite) TestCodeContainer_WriteToFiles() {
 	dir := s.T().TempDir()
-	cc := NewCodeContainer(dir, map[string]string{"d1/f.txt": "alpha", "f2.txt": "beta"})
+	cc := NewCodeContainer(map[string]string{
+		filepath.Join(dir, "d1", "f.txt"): "alpha",
+		filepath.Join(dir, "f2.txt"):      "beta",
+	})
 	wrote, err := cc.WriteToFiles(nil)
 	s.Require().NoError(err)
-	s.ElementsMatch([]string{"d1/f.txt", "f2.txt"}, wrote)
+	// compare relative to base dir for determinism
+	rel := make([]string, 0, len(wrote))
+	for _, p := range wrote {
+		rp, rerr := filepath.Rel(dir, p)
+		s.Require().NoError(rerr)
+		rel = append(rel, rp)
+	}
+	s.ElementsMatch([]string{"d1/f.txt", "f2.txt"}, rel)
 	// verify on disk
 	data1, err := os.ReadFile(filepath.Join(dir, "d1", "f.txt"))
 	s.Require().NoError(err)
@@ -139,16 +149,23 @@ func (s *ContextSuite) TestCodeOutput_WriteToFiles_Wrapper() {
 	require.NoError(s.T(), os.MkdirAll(dir, 0o755))
 	require.NoError(s.T(), os.WriteFile(filepath.Join(dir, "t.txt"), []byte("x\ny\n"), 0o644))
 
-	cc := NewCodeContainer(dir, map[string]string{"t.txt": "x\ny\n"})
+	cc := NewCodeContainer(map[string]string{filepath.Join(dir, "t.txt"): "x\ny\n"})
 	patch := mkPatch([]string{"x"}, []string{"y"}, []string{"z"}, nil)
-	out := CodeOutput{ApplyDiffs: []CodeOutputDiff{{Path: "t.txt", Patch: patch}}}
+	out := CodeOutput{ApplyDiffs: []CodeOutputDiff{{Path: filepath.Join(dir, "t.txt"), Patch: patch}}}
 	changed, err := cc.Apply(out)
 	s.Require().NoError(err)
 	cc.WriteToFiles(changed)
 	s.Require().NoError(err)
-	s.Equal([]string{"t.txt"}, changed)
+	// compare changed relative to dir
+	rel := make([]string, 0, len(changed))
+	for _, p := range changed {
+		rp, rerr := filepath.Rel(dir, p)
+		s.Require().NoError(rerr)
+		rel = append(rel, rp)
+	}
+	s.Equal([]string{"t.txt"}, rel)
 	// in-memory updated
-	s.Equal("x\nz\n", cc.Files()["t.txt"])
+	s.Equal("x\nz\n", cc.Files()[filepath.Join(dir, "t.txt")])
 	// on-disk updated
 	data, err := os.ReadFile(filepath.Join(dir, "t.txt"))
 	s.Require().NoError(err)
