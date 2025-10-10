@@ -25,7 +25,7 @@ type Definition struct {
 	Name    string
 	Command string
 	Desc    string
-	Args    []string // parsed from command
+	Args    []string          // parsed from command
 	Env     map[string]string // merged with envs from command, env map has higher precedence than envs from command.
 }
 
@@ -58,14 +58,14 @@ func NewDefinition(name, command, desc string, env map[string]string) (Definitio
 
 // Outcome describes the result of a subprocess execution.
 type Outcome struct {
-	Ran             bool
-	Command         string
-	ExitCode        int
-	Duration        time.Duration
-	Stdout          string
-	Stderr          string
-	StartedAt       time.Time
-	CompletedAt     time.Time
+	Ran         bool
+	Command     string
+	ExitCode    int
+	Duration    time.Duration
+	Stdout      string
+	Stderr      string
+	StartedAt   time.Time
+	CompletedAt time.Time
 }
 
 // SubprocessExecutor runs commands using exec.CommandContext without a shell.
@@ -128,13 +128,12 @@ func (e *SubprocessExecutor) Execute(ctx context.Context, argv []string, env map
 type CliTool struct {
 	// Def describes the base command configuration.
 	Def Definition
-	// Workdir is the default working directory when not overridden by request.
-	Workdir string
 }
 
 type CliToolRequest struct {
 	// Args are extra argv to append to the configured command.
-	Args []string `json:"args,omitempty"`
+	Args    []string `json:"args,omitempty"`
+	Workdir string   `json:"workdir,omitempty"`
 }
 
 // Info describes the tool to the model.
@@ -147,6 +146,12 @@ func (t *CliTool) Info(ctx context.Context) (*schema.ToolInfo, error) {
 				Type:     schema.Array,
 				ElemInfo: &schema.ParameterInfo{Type: schema.String},
 				Desc:     "Additional arguments to append to the configured command.",
+			},
+			"workdir": {
+				Type:     schema.String,
+				Required: true,
+				ElemInfo: &schema.ParameterInfo{Type: schema.String},
+				Desc:     "Working directory to execute the command in.",
 			},
 		}),
 	}, nil
@@ -164,13 +169,12 @@ func (t *CliTool) InvokableRun(ctx context.Context, argumentsInJSON string, _ ..
 		return fmt.Sprintf("clitool: invalid arguments: %v", err), nil
 	}
 
-	argv := append(append([]string{}, t.Def.Args...), req.Args...)
-	if len(argv) == 0 {
-		return "", errors.New("clitool: empty command")
+	if req.Workdir == "" {
+		return fmt.Sprintf("%s: workdir is required", t.Def.Name), nil
 	}
 
-	// Resolve workdir (no per-call override here)
-	workdir := t.Workdir
+	argv := append(append([]string{}, t.Def.Args...), req.Args...)
+	workdir := req.Workdir
 
 	// Execute
 	exec := &SubprocessExecutor{}

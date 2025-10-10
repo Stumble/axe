@@ -33,7 +33,7 @@ import (
 // CodeContainer holds an in-memory mapping of file paths to contents and offers
 // helpers to render inputs, apply outputs, and persist to disk.
 type CodeContainer struct {
-	files map[string]string
+	files   map[string]string
 	baseDir string
 }
 

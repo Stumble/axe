@@ -26,12 +26,13 @@ Run the tests to see if it works.
 
 func main() {
 	zerolog.SetGlobalLevel(zerolog.InfoLevel)
+	baseDir := "demo" // relative to current working directory
 	runner := axe.NewRunner(
-		"demo/.axe_history.xml",
+		baseDir,
 		[]string{instruction},
-		cc.MustNewCodeContainerFromFS("demo", []string{"add.go", "add_test.go"}),
+		cc.MustNewCodeContainerFromFS(baseDir, []string{"add.go", "add_test.go"}), // same, relative to current wd
 		axe.WithTools([]clitool.Definition{
-			clitool.MustNewDefinition("run_tests", "go test -v", "Run the tests", nil),
+			clitool.MustNewDefinition("run_tests", "go test -v", "Run the tests", nil), // command will be executed in a wd, specified by llm.
 		}),
 		axe.WithModel(axe.ModelGPT4o),
 	)

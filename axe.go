@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/joho/godotenv"
@@ -45,10 +46,10 @@ type RunnerState struct {
 
 // Runner is the core workflow executor.
 type Runner struct {
+	BaseDir      string // a base directory, relative to the current working directory.
 	HistoryFile  string
 	Instructions []string
 	Model        ModelName
-	Workdir      string // TODO: execute command in workdir
 	MaxSteps     int
 	// CLI tools that the agent can call
 	Tools []clitool.Definition
@@ -66,12 +67,6 @@ func WithModel(model ModelName) RunnerOption {
 	}
 }
 
-func WithWorkdir(workdir string) RunnerOption {
-	return func(r *Runner) {
-		r.Workdir = workdir
-	}
-}
-
 func WithMaxSteps(maxSteps int) RunnerOption {
 	return func(r *Runner) {
 		r.MaxSteps = maxSteps
@@ -84,9 +79,15 @@ func WithTools(tools []clitool.Definition) RunnerOption {
 	}
 }
 
-func NewRunner(historyFile string, instructions []string, code *container.CodeContainer, opts ...RunnerOption) *Runner {
+func WithHistoryFile(historyFile string) RunnerOption {
+	return func(r *Runner) {
+		r.HistoryFile = historyFile
+	}
+}
+
+func NewRunner(baseDir string, instructions []string, code *container.CodeContainer, opts ...RunnerOption) *Runner {
 	r := &Runner{
-		HistoryFile:  historyFile,
+		BaseDir:      baseDir,
 		Instructions: instructions,
 		State: &RunnerState{
 			Code: code,
@@ -94,6 +95,15 @@ func NewRunner(historyFile string, instructions []string, code *container.CodeCo
 	}
 	for _, opt := range opts {
 		opt(r)
+	}
+	if r.HistoryFile == "" {
+		r.HistoryFile = filepath.Join(r.BaseDir, ".axe_history.xml")
+	}
+	if r.MaxSteps <= 0 {
+		r.MaxSteps = defaultMaxSteps
+	}
+	if r.Model == "" {
+		r.Model = ModelGPT4o
 	}
 	return r
 }
@@ -120,7 +130,7 @@ func (r *Runner) Run(ctx context.Context, loadDotEnv bool) error {
 		&code.ApplyEditTool{Code: r.State.Code}, // apply code output to code container, code output is the parameter
 		&finalize.FinalizeTool{},                // finalize the task
 	}
-	
+
 	// add cli tools
 	for _, tool := range r.Tools {
 		tools = append(tools, &clitool.CliTool{Def: tool})
@@ -133,7 +143,7 @@ func (r *Runner) Run(ctx context.Context, loadDotEnv bool) error {
 
 	agentCfg := &react.AgentConfig{
 		StreamToolCallChecker: r.toolCallChecker, // somehow this blocks the logger callback from logging anything....
-		ToolCallingModel: chatModel,
+		ToolCallingModel:      chatModel,
 		ToolsConfig: compose.ToolsNodeConfig{
 			Tools:               tools,
 			ExecuteSequentially: true, // execute tools sequentially. We will also prompt LLM to do the code edit tool before other tools like tests, if llm prefers to multi-call them.
@@ -141,7 +151,7 @@ func (r *Runner) Run(ctx context.Context, loadDotEnv bool) error {
 			// ToolArgumentsHandler: func(ctx context.Context, name, arguments string) (string, error) {
 			// 	log.Debug().Str("name", name).Str("arguments", arguments).Msg("ToolArgumentsHandler")
 			// 	switch name {
-      //   case code.ApplyEditToolName:
+			//   case code.ApplyEditToolName:
 			// 		arg := make(map[string]string)
 			// 		_ = json.Unmarshal([]byte(arguments), &arg)
 			// 		fmt.Printf("apply edit tool arguments: %s\n", arg["code_output"])
@@ -290,23 +300,23 @@ CodeInput: {{ code_input }}`
 // 1. check if the model is outputting tool calls
 // 2. stream out messages from the model.
 func (r *Runner) toolCallChecker(_ context.Context, sr *schema.StreamReader[*schema.Message]) (bool, error) {
-    defer sr.Close()
-		hasToolCalls := false
-    for {
-       msg, err := sr.Recv()
-       if err != nil {
-          if errors.Is(err, io.EOF) {
-             break
-          }
-          return false, err
-       }
+	defer sr.Close()
+	hasToolCalls := false
+	for {
+		msg, err := sr.Recv()
+		if err != nil {
+			if errors.Is(err, io.EOF) {
+				break
+			}
+			return false, err
+		}
 
-       if len(msg.ToolCalls) > 0 {
-          hasToolCalls = true
-       }
-			r.streamFrame(r.Output, msg)
-    }
-    return hasToolCalls, nil
+		if len(msg.ToolCalls) > 0 {
+			hasToolCalls = true
+		}
+		r.streamFrame(r.Output, msg)
+	}
+	return hasToolCalls, nil
 }
 
 func (r *Runner) streamFrame(out chan<- string, frame any) {
