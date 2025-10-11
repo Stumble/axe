@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/joho/godotenv"
 	"github.com/rs/zerolog/log"
@@ -21,6 +22,7 @@ import (
 	"github.com/cloudwego/eino/schema"
 
 	"github.com/stumble/axe/code/container"
+	"github.com/stumble/axe/history"
 	clitool "github.com/stumble/axe/tools/cli"
 	"github.com/stumble/axe/tools/code"
 	"github.com/stumble/axe/tools/finalize"
@@ -37,6 +39,7 @@ const (
 const (
 	OpenAIDefaultBaseURL = "https://api.openai.com/v1"
 	defaultMaxSteps      = 40
+	DefaultHistoryFile   = ".axe_history.xml"
 )
 
 type RunnerState struct {
@@ -47,7 +50,8 @@ type RunnerState struct {
 // Runner is the core workflow executor.
 type Runner struct {
 	BaseDir      string // a base directory, relative to the current working directory.
-	HistoryFile  string
+	History      *history.History
+	MinInterval  time.Duration // if > 0, skip run when last edit is within this duration
 	Instructions []string
 	Model        ModelName
 	MaxSteps     int
@@ -59,33 +63,45 @@ type Runner struct {
 	Output chan string // output from the agent
 }
 
-type RunnerOption func(*Runner)
+type RunnerOption func(*Runner) error
 
 func WithModel(model ModelName) RunnerOption {
-	return func(r *Runner) {
+	return func(r *Runner) error {
 		r.Model = model
+		return nil
 	}
 }
 
 func WithMaxSteps(maxSteps int) RunnerOption {
-	return func(r *Runner) {
+	return func(r *Runner) error {
 		r.MaxSteps = maxSteps
+		return nil
 	}
 }
 
 func WithTools(tools []clitool.Definition) RunnerOption {
-	return func(r *Runner) {
+	return func(r *Runner) error {
 		r.Tools = tools
+		return nil
 	}
 }
 
-func WithHistoryFile(historyFile string) RunnerOption {
-	return func(r *Runner) {
-		r.HistoryFile = historyFile
+func WithHistory(historyFilePath string) RunnerOption {
+	return func(r *Runner) error {
+		var err error
+		r.History, err = history.ReadHistoryFromFile(historyFilePath)
+		return err
 	}
 }
 
-func NewRunner(baseDir string, instructions []string, code *container.CodeContainer, opts ...RunnerOption) *Runner {
+func WithMinInterval(minInterval time.Duration) RunnerOption {
+	return func(r *Runner) error {
+		r.MinInterval = minInterval
+		return nil
+	}
+}
+
+func NewRunner(baseDir string, instructions []string, code *container.CodeContainer, opts ...RunnerOption) (*Runner, error) {
 	r := &Runner{
 		BaseDir:      baseDir,
 		Instructions: instructions,
@@ -94,10 +110,15 @@ func NewRunner(baseDir string, instructions []string, code *container.CodeContai
 		},
 	}
 	for _, opt := range opts {
-		opt(r)
+		err := opt(r)
+		if err != nil {
+			return nil, err
+		}
 	}
-	if r.HistoryFile == "" {
-		r.HistoryFile = filepath.Join(r.BaseDir, ".axe_history.xml")
+	if r.History == nil {
+		r.History = &history.History{
+			FilePath: filepath.Join(r.BaseDir, DefaultHistoryFile),
+		}
 	}
 	if r.MaxSteps <= 0 {
 		r.MaxSteps = defaultMaxSteps
@@ -105,14 +126,24 @@ func NewRunner(baseDir string, instructions []string, code *container.CodeContai
 	if r.Model == "" {
 		r.Model = ModelGPT4o
 	}
-	return r
+	return r, nil
 }
 
 func (r *Runner) Run(ctx context.Context, loadDotEnv bool) error {
 	if r == nil {
 		return errors.New("axe: nil runner")
 	}
-	r.Output = make(chan string, 4096)
+
+	// Optional: enforce min interval between runs based on last history entry
+	if r.MinInterval > 0 {
+		if ts, ok := r.History.LastChangelogTimestamp(); ok {
+			if time.Since(ts) < r.MinInterval {
+				log.Info().Msgf("axe: skipping run, last edit %s ago < min interval %s", time.Since(ts).String(), r.MinInterval.String())
+				return nil
+			}
+		}
+	}
+
 	if loadDotEnv {
 		err := godotenv.Load()
 		if err != nil {
@@ -126,9 +157,13 @@ func (r *Runner) Run(ctx context.Context, loadDotEnv bool) error {
 	}
 	log.Info().Msgf("axe: using model %s", r.Model)
 
+	changelog := history.Changelog{
+		Timestamp: time.Now(),
+	}
+	r.Output = make(chan string, 4096)
 	tools := []tool.BaseTool{
-		&code.ApplyEditTool{Code: r.State.Code}, // apply code output to code container, code output is the parameter
-		&finalize.FinalizeTool{},                // finalize the task
+		&code.ApplyEditTool{Code: r.State.Code},       // apply code output to code container, code output is the parameter
+		&finalize.FinalizeTool{Changelog: &changelog}, // finalize the task, allow it to update changelog
 	}
 
 	// add cli tools
@@ -237,6 +272,10 @@ func (r *Runner) Run(ctx context.Context, loadDotEnv bool) error {
 		builder.WriteString(msg.Content)
 	}
 	log.Debug().Str("content", builder.String()).Msg("axe: agent execution finished")
+	changelog.Logs = append(changelog.Logs, builder.String())
+	if err := r.History.SaveHistoryToFile(); err != nil {
+		return fmt.Errorf("axe: save history: %w", err)
+	}
 	return nil
 }
 

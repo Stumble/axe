@@ -27,7 +27,7 @@ Run the tests to see if it works.
 func main() {
 	zerolog.SetGlobalLevel(zerolog.InfoLevel)
 	baseDir := "demo" // relative to current working directory
-	runner := axe.NewRunner(
+	runner, err := axe.NewRunner(
 		baseDir,
 		[]string{instruction},
 		cc.MustNewCodeContainerFromFS(baseDir, []string{"add.go", "add_test.go"}), // same, relative to current wd
@@ -36,7 +36,10 @@ func main() {
 		}),
 		axe.WithModel(axe.ModelGPT4o),
 	)
-	err := runner.Run(context.Background(), true)
+	if err != nil {
+		log.Fatalf("failed to create runner: %v", err)
+	}
+	err = runner.Run(context.Background(), true)
 	if err != nil {
 		log.Fatalf("failed to run: %v", err)
 	}
