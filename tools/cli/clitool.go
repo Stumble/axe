@@ -217,9 +217,8 @@ func (t *CliTool) InvokableRun(ctx context.Context, argumentsInJSON string, _ ..
 	// Execute
 	exec := &SubprocessExecutor{}
 	outcome := exec.Execute(ctx, argv, t.Def.Env, workdir)
-	// Marshal Outcome as JSON so callers can parse fields reliably.
-	b, _ := json.Marshal(outcome)
-	return string(b), nil
+	// Return dedicated Output string instead of Outcome JSON for better readability.
+	return outcome.String(), nil
 }
 
 func parseEnvKVs(pairs []string) map[string]string {

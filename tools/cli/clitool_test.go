@@ -92,7 +92,7 @@ func TestDefinition_EnvPrecedence(t *testing.T) {
 	assert.Equal(t, "base", out.Stdout)
 }
 
-// Removed OutcomeJSON-level tests; InvokableRun returns the Outcome JSON directly
+// Removed OutcomeJSON-level tests; InvokableRun returns a human-readable string
 
 func TestHelpers_parseEnvKVs(t *testing.T) {
 	got := parseEnvKVs([]string{" FOO=bar ", "BAZ=qux", "NOEQ", "=empty", "X=1=2"})
@@ -172,10 +172,9 @@ func TestCliTool_InvokableRun_SuccessArgsAndEnvPrecedence(t *testing.T) {
 	data, _ := json.Marshal(args)
 	resp, err := tool.InvokableRun(ctx, string(data))
 	require.NoError(t, err)
-	var m map[string]any
-	require.NoError(t, json.Unmarshal([]byte(resp), &m))
 	// Definition env overrides inline assignment; $0 reflects the appended arg to sh -c
-	assert.Equal(t, "base:ARGVAL", m["Stdout"])
+	assert.Contains(t, resp, "Result: succeeded")
+	assert.Contains(t, resp, "base:ARGVAL")
 }
 
 func TestCliTool_InvokableRun_InvalidJSON(t *testing.T) {
@@ -203,10 +202,8 @@ func TestCliTool_InvokableRun_TimeoutExitCode(t *testing.T) {
 	data, _ := json.Marshal(args)
 	resp, err := tool.InvokableRun(ctx, string(data))
 	require.NoError(t, err)
-	var m map[string]any
-	require.NoError(t, json.Unmarshal([]byte(resp), &m))
-	// Exit code -1 indicates timeout in our executor
-	assert.Equal(t, float64(-1), m["ExitCode"]) // JSON numbers are float64
+	// Exit code -1 indicates timeout in our executor -> human-readable string contains:
+	assert.Contains(t, resp, "Result: timed out")
 }
 
 func TestCliTool_InvokableRun_WorkdirUsed(t *testing.T) {
@@ -217,10 +214,9 @@ func TestCliTool_InvokableRun_WorkdirUsed(t *testing.T) {
 	data, _ := json.Marshal(args)
 	resp, err := tool.InvokableRun(ctx, string(data))
 	require.NoError(t, err)
-	var m map[string]any
-	require.NoError(t, json.Unmarshal([]byte(resp), &m))
-	got := strings.TrimSpace(m["Stdout"].(string))
-	assert.True(t, got == dir || filepath.Base(got) == filepath.Base(dir), "pwd=%q dir=%q", got, dir)
+	// Stdout should contain the working directory; some systems resolve symlinks
+	gotDir := strings.TrimSpace(dir)
+	assert.True(t, strings.Contains(resp, gotDir) || strings.Contains(resp, filepath.Base(gotDir)), "resp=%q dir=%q", resp, dir)
 }
 
 func TestCliTool_InvokableRun_WorkdirScriptEnvMerge(t *testing.T) {
@@ -243,9 +239,7 @@ func TestCliTool_InvokableRun_WorkdirScriptEnvMerge(t *testing.T) {
 	data, _ := json.Marshal(args)
 	resp, err := tool.InvokableRun(ctx, string(data))
 	require.NoError(t, err)
-	var m map[string]any
-	require.NoError(t, json.Unmarshal([]byte(resp), &m))
-	assert.Equal(t, "base", m["Stdout"])
+	assert.Contains(t, resp, "base")
 }
 
 // Removed empty argv and nil receiver tests; current implementation assumes non-nil receiver

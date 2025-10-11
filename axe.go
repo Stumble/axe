@@ -83,7 +83,8 @@ func (r *Runner) Run(ctx context.Context, loadDotEnv bool) error {
 	if err != nil {
 		return err
 	}
-	log.Info().Msgf("axe: using model %s", r.Model)
+	log.Debug().Msgf("axe: using model %s", r.Model)
+	fmt.Println("axe: using model", r.Model)
 
 	changelog := history.Changelog{Timestamp: time.Now()}
 	r.Output = make(chan string, 4096)

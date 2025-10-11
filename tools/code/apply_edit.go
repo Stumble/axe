@@ -89,7 +89,7 @@ func (t *ApplyEditTool) InvokableRun(ctx context.Context, argumentsInJSON string
 		return "apply_edit: no changes to apply", nil
 	}
 
-	log.Info().Msgf("apply_edit: changed files: %s", strings.Join(changed, ", "))
+	log.Debug().Msgf("apply_edit: changed files: %s", strings.Join(changed, ", "))
 
 	// Persist only the changed files. Empty baseDir writes paths as-is (absolute or relative).
 	written, err := t.Code.WriteToFiles(changed)
@@ -97,7 +97,7 @@ func (t *ApplyEditTool) InvokableRun(ctx context.Context, argumentsInJSON string
 		return fmt.Sprintf("failed to write files: %v", err), nil
 	}
 
-	log.Info().Msgf("apply_edit: written files: %s", strings.Join(written, ", "))
+	log.Debug().Msgf("apply_edit: written files: %s", strings.Join(written, ", "))
 
 	// Build a concise summary
 	return fmt.Sprintf("Applied edits to %d file(s): %s", len(written), strings.Join(written, ", ")), nil
