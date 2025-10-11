@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/joho/godotenv"
@@ -235,7 +236,10 @@ func (r *Runner) Run(ctx context.Context, loadDotEnv bool) error {
 		fmt.Printf("%s: %s\n", msg.Role, msg.Content)
 	}
 
+	var wg sync.WaitGroup
+	wg.Add(1)
 	go func() {
+		defer wg.Done()
 		for {
 			select {
 			case <-ctx.Done():
@@ -249,16 +253,16 @@ func (r *Runner) Run(ctx context.Context, loadDotEnv bool) error {
 		}
 	}()
 
-	var builder strings.Builder
 	var msgReader *schema.StreamReader[*schema.Message]
 	msgReader, err = agt.Stream(ctx, messages)
 	if err != nil {
 		return fmt.Errorf("axe: agent execution failed: %w", err)
 	}
 	defer msgReader.Close()
+	var agentExecErr error
 	for {
 		// msg type is *schema.Message
-		msg, err := msgReader.Recv()
+		_, err := msgReader.Recv()
 		if err != nil {
 			if errors.Is(err, io.EOF) {
 				// finish
@@ -266,16 +270,22 @@ func (r *Runner) Run(ctx context.Context, loadDotEnv bool) error {
 			}
 			// error
 			log.Error().Err(err).Msg("axe: agent execution failed")
-			return fmt.Errorf("axe: agent execution failed: %w", err)
+			agentExecErr = err
+			break
 		}
-
-		builder.WriteString(msg.Content)
 	}
-	log.Debug().Str("content", builder.String()).Msg("axe: agent execution finished")
-	changelog.Logs = append(changelog.Logs, builder.String())
+	close(r.Output)
+	log.Debug().Err(agentExecErr).Msg("axe: agent execution finished")
+	if agentExecErr != nil {
+		changelog.Logs = append(changelog.Logs, agentExecErr.Error())
+	} else {
+		changelog.Logs = append(changelog.Logs, "Agent execution finished successfully.")
+	}
+	r.History.AppendChangelog(changelog)
 	if err := r.History.SaveHistoryToFile(); err != nil {
 		return fmt.Errorf("axe: save history: %w", err)
 	}
+	wg.Wait()
 	return nil
 }
 

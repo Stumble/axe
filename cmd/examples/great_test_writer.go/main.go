@@ -4,7 +4,6 @@ import (
 	"context"
 	"log"
 
-	"github.com/rs/zerolog"
 	"github.com/stumble/axe"
 	cc "github.com/stumble/axe/code/container"
 	clitool "github.com/stumble/axe/tools/cli"
@@ -25,7 +24,7 @@ Run the tests to see if it works.
 `
 
 func main() {
-	zerolog.SetGlobalLevel(zerolog.InfoLevel)
+	// zerolog.SetGlobalLevel(zerolog.InfoLevel)
 	baseDir := "demo" // relative to current working directory
 	runner, err := axe.NewRunner(
 		baseDir,
