@@ -9,9 +9,27 @@ import (
 )
 
 type Changelog struct {
-	Timestamp time.Time `xml:"Timestamp"`
-	Success   bool      `xml:"Success"`
-	Logs      []string  `xml:"Logs>Log"`
+	Timestamp time.Time  `xml:"Timestamp"`
+	Success   bool       `xml:"Success"`
+	Logs      []LogEntry `xml:"Logs>Log"`
+}
+
+type LogEntry struct {
+	Value string `xml:",chardata"`
+}
+
+func (l LogEntry) MarshalXML(e *xml.Encoder, start xml.StartElement) error {
+	type cdataWrapper struct {
+		Text string `xml:",cdata"`
+	}
+	return e.EncodeElement(cdataWrapper{Text: l.Value}, start)
+}
+
+func (c *Changelog) AddLog(entry string) {
+	if c == nil {
+		return
+	}
+	c.Logs = append(c.Logs, LogEntry{Value: entry})
 }
 
 type History struct {

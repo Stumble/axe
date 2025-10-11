@@ -77,8 +77,10 @@ func (t *FinalizeTool) InvokableRun(ctx context.Context, argumentsInJSON string,
 	}
 
 	// update changelog
-	t.Changelog.Success = status == StatusSuccess
-	t.Changelog.Logs = append(t.Changelog.Logs, summary)
+	if t.Changelog != nil {
+		t.Changelog.Success = status == StatusSuccess
+		t.Changelog.AddLog(summary)
+	}
 
 	if err := react.SetReturnDirectly(ctx); err != nil {
 		return "", fmt.Errorf("finalize_task: %w", err)

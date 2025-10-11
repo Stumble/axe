@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strings"
 	"sync"
 	"time"
 
@@ -79,12 +80,14 @@ func (r *Runner) Run(ctx context.Context, loadDotEnv bool) error {
 		}
 	}
 
+	recorder := &outputRecorder{}
+
 	chatModel, err := newChatModel(ctx, r.Model)
 	if err != nil {
 		return err
 	}
 	log.Debug().Msgf("axe: using model %s", r.Model)
-	fmt.Println("axe: using model", r.Model)
+	r.writeStdout(recorder, fmt.Sprintf("axe: using model %s\n", r.Model))
 
 	changelog := history.Changelog{Timestamp: time.Now()}
 	r.Output = make(chan string, 4096)
@@ -103,9 +106,9 @@ func (r *Runner) Run(ctx context.Context, loadDotEnv bool) error {
 	if err != nil {
 		return fmt.Errorf("axe: format prompt: %w", err)
 	}
-	r.printInitialMessages(messages)
+	r.printInitialMessages(messages, recorder)
 
-	wg := r.startOutputForwarder(ctx)
+	wg := r.startOutputForwarder(ctx, recorder)
 
 	msgReader, err := agt.Stream(ctx, messages)
 	if err != nil {
@@ -118,15 +121,21 @@ func (r *Runner) Run(ctx context.Context, loadDotEnv bool) error {
 	log.Debug().Err(agentExecErr).Msg("axe: agent execution finished")
 
 	if agentExecErr != nil {
-		changelog.Logs = append(changelog.Logs, agentExecErr.Error())
+		recorder.Write(fmt.Sprintf("Agent execution failed: %v\n", agentExecErr))
 	} else {
-		changelog.Logs = append(changelog.Logs, "Agent execution finished successfully.")
+		recorder.Write("Agent execution finished successfully.\n")
 	}
+
+	wg.Wait()
+
+	if output := recorder.String(); output != "" {
+		changelog.AddLog(output)
+	}
+
 	r.History.AppendChangelog(changelog)
 	if err := r.History.SaveHistoryToFile(); err != nil {
 		return fmt.Errorf("axe: save history: %w", err)
 	}
-	wg.Wait()
 	return nil
 }
 
@@ -185,13 +194,13 @@ func (r *Runner) buildAgentConfig(chatModel model.ToolCallingChatModel, tools []
 	}
 }
 
-func (r *Runner) printInitialMessages(messages []*schema.Message) {
+func (r *Runner) printInitialMessages(messages []*schema.Message, recorder *outputRecorder) {
 	for _, msg := range messages {
-		fmt.Printf("%s: %s\n", msg.Role, msg.Content)
+		r.writeStdout(recorder, fmt.Sprintf("%s: %s\n", msg.Role, msg.Content))
 	}
 }
 
-func (r *Runner) startOutputForwarder(ctx context.Context) *sync.WaitGroup {
+func (r *Runner) startOutputForwarder(ctx context.Context, recorder *outputRecorder) *sync.WaitGroup {
 	var wg sync.WaitGroup
 	wg.Add(1)
 	go func() {
@@ -204,11 +213,41 @@ func (r *Runner) startOutputForwarder(ctx context.Context) *sync.WaitGroup {
 				if !ok {
 					return
 				}
-				fmt.Printf("%s", msg)
+				r.writeStdout(recorder, msg)
 			}
 		}
 	}()
 	return &wg
+}
+
+func (r *Runner) writeStdout(recorder *outputRecorder, text string) {
+	fmt.Print(text)
+	if recorder != nil {
+		recorder.Write(text)
+	}
+}
+
+type outputRecorder struct {
+	mu  sync.Mutex
+	buf strings.Builder
+}
+
+func (o *outputRecorder) Write(text string) {
+	if o == nil {
+		return
+	}
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	o.buf.WriteString(text)
+}
+
+func (o *outputRecorder) String() string {
+	if o == nil {
+		return ""
+	}
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	return o.buf.String()
 }
 
 func (r *Runner) consumeAgentStream(msgReader *schema.StreamReader[*schema.Message]) error {
