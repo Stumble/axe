@@ -1,6 +1,7 @@
 package axe
 
 import (
+	"fmt"
 	"path/filepath"
 	"time"
 
@@ -35,7 +36,10 @@ func WithHistory(historyFilePath string) RunnerOption {
 	return func(r *Runner) error {
 		var err error
 		r.History, err = history.ReadHistoryFromFile(historyFilePath)
-		return err
+		if err != nil {
+			return fmt.Errorf("axe: read history file: %w", err)
+		}
+		return nil
 	}
 }
 
@@ -46,9 +50,14 @@ func WithMinInterval(minInterval time.Duration) RunnerOption {
 	}
 }
 
-func (r *Runner) applyDefaults() {
+func (r *Runner) applyDefaults() error {
 	if r.History == nil {
-		r.History = &history.History{FilePath: filepath.Join(r.BaseDir, DefaultHistoryFile)}
+		historyFile := filepath.Join(r.BaseDir, DefaultHistoryFile)
+		history, err := history.ReadHistoryFromFile(historyFile)
+		if err != nil {
+			return fmt.Errorf("axe: read history file: %w", err)
+		}
+		r.History = history
 	}
 	if r.MaxSteps <= 0 {
 		r.MaxSteps = defaultMaxSteps
@@ -56,4 +65,5 @@ func (r *Runner) applyDefaults() {
 	if r.Model == "" {
 		r.Model = ModelGPT4o
 	}
+	return nil
 }

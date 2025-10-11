@@ -63,7 +63,9 @@ func NewRunner(baseDir string, instructions []string, code *container.CodeContai
 			return nil, err
 		}
 	}
-	r.applyDefaults()
+	if err := r.applyDefaults(); err != nil {
+		return nil, err
+	}
 	return r, nil
 }
 
