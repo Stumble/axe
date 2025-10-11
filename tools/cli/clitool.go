@@ -108,14 +108,7 @@ func (o Outcome) String() string {
 // SubprocessExecutor runs commands using exec.CommandContext without a shell.
 type SubprocessExecutor struct{}
 
-func (e *SubprocessExecutor) Execute(ctx context.Context, argv []string, env map[string]string, workdir string) (Outcome, error) {
-	if len(argv) == 0 {
-		return Outcome{}, errors.New("no command provided")
-	}
-	// Ensure the executable exists on PATH to avoid invoking arbitrary input.
-	if _, err := exec.LookPath(argv[0]); err != nil {
-		return Outcome{}, err
-	}
+func (e *SubprocessExecutor) Execute(ctx context.Context, argv []string, env map[string]string, workdir string) Outcome {
 	// #nosec G204 - argv[0] originates from trusted Definition, not user input; no shell is used.
 	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
 	cmd.Dir = workdir
@@ -162,7 +155,7 @@ func (e *SubprocessExecutor) Execute(ctx context.Context, argv []string, env map
 		StartedAt:   start,
 		CompletedAt: start.Add(duration),
 	}
-	return outcome, nil
+	return outcome
 }
 
 // ---------------------- Tool integration for LLM invocation ----------------------
@@ -223,11 +216,10 @@ func (t *CliTool) InvokableRun(ctx context.Context, argumentsInJSON string, _ ..
 
 	// Execute
 	exec := &SubprocessExecutor{}
-	outcome, err := exec.Execute(ctx, argv, t.Def.Env, workdir)
-	if err != nil {
-		return fmt.Sprintf("failed to execute command: %v", err), nil
-	}
-	return outcome.String(), nil
+	outcome := exec.Execute(ctx, argv, t.Def.Env, workdir)
+	// Marshal Outcome as JSON so callers can parse fields reliably.
+	b, _ := json.Marshal(outcome)
+	return string(b), nil
 }
 
 func parseEnvKVs(pairs []string) map[string]string {

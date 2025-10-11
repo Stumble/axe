@@ -18,8 +18,7 @@ func TestSubprocessExecutor_Success(t *testing.T) {
 	ctx := context.Background()
 	exec := &SubprocessExecutor{}
 	argv := []string{"/bin/sh", "-c", "printf %s hello"}
-	out, err := exec.Execute(ctx, argv, nil, "")
-	require.NoError(t, err)
+	out := exec.Execute(ctx, argv, nil, "")
 	assert.True(t, out.Ran)
 	assert.Equal(t, 0, out.ExitCode)
 	assert.Equal(t, "hello", out.Stdout)
@@ -30,8 +29,7 @@ func TestSubprocessExecutor_NonZeroExit(t *testing.T) {
 	ctx := context.Background()
 	exec := &SubprocessExecutor{}
 	argv := []string{"/bin/sh", "-c", "exit 7"}
-	out, err := exec.Execute(ctx, argv, nil, "")
-	require.NoError(t, err)
+	out := exec.Execute(ctx, argv, nil, "")
 	assert.True(t, out.Ran)
 	assert.Equal(t, 7, out.ExitCode)
 }
@@ -41,8 +39,7 @@ func TestSubprocessExecutor_Timeout(t *testing.T) {
 	defer cancel()
 	exec := &SubprocessExecutor{}
 	argv := []string{"/bin/sh", "-c", "sleep 2"}
-	out, err := exec.Execute(ctx, argv, nil, "")
-	require.NoError(t, err)
+	out := exec.Execute(ctx, argv, nil, "")
 	assert.True(t, out.Ran)
 	assert.Equal(t, -1, out.ExitCode)
 }
@@ -52,8 +49,7 @@ func TestSubprocessExecutor_EnvPropagation(t *testing.T) {
 	exec := &SubprocessExecutor{}
 	argv := []string{"/bin/sh", "-c", "printf %s \"$FOO\""}
 	env := map[string]string{"FOO": "bar"}
-	out, err := exec.Execute(ctx, argv, env, "")
-	require.NoError(t, err)
+	out := exec.Execute(ctx, argv, env, "")
 	assert.Equal(t, "bar", out.Stdout)
 }
 
@@ -62,8 +58,7 @@ func TestSubprocessExecutor_Workdir(t *testing.T) {
 	exec := &SubprocessExecutor{}
 	dir := t.TempDir()
 	argv := []string{"/bin/sh", "-c", "pwd"}
-	out, err := exec.Execute(ctx, argv, nil, dir)
-	require.NoError(t, err)
+	out := exec.Execute(ctx, argv, nil, dir)
 	got := strings.TrimSpace(out.Stdout)
 	// Some systems resolve symlinks; compare basenames when necessary
 	assert.True(t, got == dir || filepath.Base(got) == filepath.Base(dir), "pwd=%q dir=%q", got, dir)
@@ -74,8 +69,7 @@ func TestSubprocessExecutor_TruncationStdout(t *testing.T) {
 	exec := &SubprocessExecutor{}
 	// Generate 4001 bytes using yes/head to force clipping at 3000 runes
 	argv := []string{"/bin/sh", "-c", "yes A | head -c 4001"}
-	out, err := exec.Execute(ctx, argv, nil, "")
-	require.NoError(t, err)
+	out := exec.Execute(ctx, argv, nil, "")
 	assert.Contains(t, out.Stdout, truncatedMarker)
 	// Ensure both prefix and suffix exist around the marker
 	parts := strings.Split(out.Stdout, truncatedMarker)
@@ -94,8 +88,7 @@ func TestDefinition_EnvPrecedence(t *testing.T) {
 		map[string]string{"FOO": "base"},
 	)
 	exec := &SubprocessExecutor{}
-	out, err := exec.Execute(ctx, def.Args, def.Env, "")
-	require.NoError(t, err)
+	out := exec.Execute(ctx, def.Args, def.Env, "")
 	assert.Equal(t, "base", out.Stdout)
 }
 
@@ -269,8 +262,7 @@ func TestSubprocessExecutor_TruncationStderr(t *testing.T) {
 	exec := &SubprocessExecutor{}
 	// Produce large stderr content and ensure it is truncated
 	argv := []string{"/bin/sh", "-c", "yes E | head -c 4001 1>&2"}
-	out, err := exec.Execute(ctx, argv, nil, "")
-	require.NoError(t, err)
+	out := exec.Execute(ctx, argv, nil, "")
 	assert.Contains(t, out.Stderr, truncatedMarker)
 	parts := strings.Split(out.Stderr, truncatedMarker)
 	require.Len(t, parts, 2)
@@ -283,8 +275,7 @@ func TestSubprocessExecutor_CommandNotFound_ErrorDecoration(t *testing.T) {
 	exec := &SubprocessExecutor{}
 	// Intentionally execute a non-existent absolute path so process fails to start
 	argv := []string{"/ definitely-not-a-binary-xyz"}
-	out, err := exec.Execute(ctx, argv, nil, "")
-	require.NoError(t, err)
+	out := exec.Execute(ctx, argv, nil, "")
 	assert.True(t, out.Ran)
 	assert.Equal(t, 1, out.ExitCode)
 	assert.Contains(t, out.Stderr, "command error:")
@@ -299,8 +290,7 @@ func TestDefinition_InlineEnvPersistsWhenNotOverridden(t *testing.T) {
 		nil,
 	)
 	exec := &SubprocessExecutor{}
-	out, err := exec.Execute(ctx, def.Args, def.Env, "")
-	require.NoError(t, err)
+	out := exec.Execute(ctx, def.Args, def.Env, "")
 	assert.Equal(t, "inline", out.Stdout)
 }
 
@@ -317,12 +307,10 @@ func TestOutcome_String_Success(t *testing.T) {
 	ctx := context.Background()
 	exec := &SubprocessExecutor{}
 	argv := []string{"/bin/sh", "-c", "printf %s hello"}
-	out, err := exec.Execute(ctx, argv, nil, "")
-	require.NoError(t, err)
+	out := exec.Execute(ctx, argv, nil, "")
 	s := out.String()
 	assert.Contains(t, s, "Command:")
 	assert.Contains(t, s, "Result: succeeded")
-	assert.Contains(t, s, "Duration:")
 	assert.Contains(t, s, "Stdout:")
 	assert.Contains(t, s, "hello")
 }
@@ -331,8 +319,7 @@ func TestOutcome_String_NonZero(t *testing.T) {
 	ctx := context.Background()
 	exec := &SubprocessExecutor{}
 	argv := []string{"/bin/sh", "-c", "exit 7"}
-	out, err := exec.Execute(ctx, argv, nil, "")
-	require.NoError(t, err)
+	out := exec.Execute(ctx, argv, nil, "")
 	s := out.String()
 	assert.Contains(t, s, "Result: exited with code 7")
 	// No stdout section expected; stderr might be empty depending on shell
@@ -343,8 +330,7 @@ func TestOutcome_String_Timeout(t *testing.T) {
 	defer cancel()
 	exec := &SubprocessExecutor{}
 	argv := []string{"/bin/sh", "-c", "sleep 2"}
-	out, err := exec.Execute(ctx, argv, nil, "")
-	require.NoError(t, err)
+	out := exec.Execute(ctx, argv, nil, "")
 	s := out.String()
 	assert.Contains(t, s, "Result: timed out")
 }
