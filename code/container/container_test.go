@@ -154,7 +154,7 @@ func (s *ContextSuite) TestCodeOutput_WriteToFiles_Wrapper() {
 	out := CodeOutput{ApplyDiffs: []CodeOutputDiff{{Path: filepath.Join(dir, "t.txt"), Patch: patch}}}
 	changed, err := cc.Apply(out)
 	s.Require().NoError(err)
-	cc.WriteToFiles(changed)
+	_, err = cc.WriteToFiles(changed)
 	s.Require().NoError(err)
 	// compare changed relative to dir
 	rel := make([]string, 0, len(changed))

@@ -77,10 +77,10 @@ func (o Outcome) String() string {
 	}
 
 	var result string
-	switch {
-	case o.ExitCode == -1:
+	switch o.ExitCode {
+	case -1:
 		result = "timed out"
-	case o.ExitCode == 0:
+	case 0:
 		result = "succeeded"
 	default:
 		result = fmt.Sprintf("exited with code %d", o.ExitCode)
@@ -109,6 +109,14 @@ func (o Outcome) String() string {
 type SubprocessExecutor struct{}
 
 func (e *SubprocessExecutor) Execute(ctx context.Context, argv []string, env map[string]string, workdir string) (Outcome, error) {
+	if len(argv) == 0 {
+		return Outcome{}, errors.New("no command provided")
+	}
+	// Ensure the executable exists on PATH to avoid invoking arbitrary input.
+	if _, err := exec.LookPath(argv[0]); err != nil {
+		return Outcome{}, err
+	}
+	// #nosec G204 - argv[0] originates from trusted Definition, not user input; no shell is used.
 	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
 	cmd.Dir = workdir
 	cmd.Env = append(os.Environ(), flattenEnv(env)...)

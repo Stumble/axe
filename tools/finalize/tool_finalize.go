@@ -11,7 +11,13 @@ import (
 	"github.com/cloudwego/eino/flow/agent/react"
 	"github.com/cloudwego/eino/schema"
 	"github.com/rs/zerolog/log"
+
 	"github.com/stumble/axe/history"
+)
+
+const (
+	StatusSuccess = "success"
+	StatusFailure = "failure"
 )
 
 const (
@@ -57,13 +63,13 @@ func (t *FinalizeTool) InvokableRun(ctx context.Context, argumentsInJSON string,
 	}
 
 	status := strings.ToLower(strings.TrimSpace(req.Status))
-	if status != "success" && status != "failure" {
+	if status != StatusSuccess && status != StatusFailure {
 		return "", errors.New("finalize_task: status must be \"success\" or \"failure\"")
 	}
 
 	summary := strings.TrimSpace(req.Changelog)
 	if summary == "" {
-		if status == "success" {
+		if status == StatusSuccess {
 			summary = "Task marked as success."
 		} else {
 			summary = "Task marked as failure."
@@ -71,7 +77,7 @@ func (t *FinalizeTool) InvokableRun(ctx context.Context, argumentsInJSON string,
 	}
 
 	// update changelog
-	t.Changelog.Success = status == "success"
+	t.Changelog.Success = status == StatusSuccess
 	t.Changelog.Logs = append(t.Changelog.Logs, summary)
 
 	if err := react.SetReturnDirectly(ctx); err != nil {

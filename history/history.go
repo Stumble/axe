@@ -66,7 +66,7 @@ func (h *History) SaveHistoryToFile() error {
 		return err
 	}
 	content := append([]byte(xml.Header), buf...)
-	return os.WriteFile(path, content, 0o644)
+	return os.WriteFile(path, content, 0o600)
 }
 
 func (h *History) LastChangelogTimestamp() (time.Time, bool) {

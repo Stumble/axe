@@ -11,9 +11,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/joho/godotenv"
-	"github.com/rs/zerolog/log"
-
 	einoopenai "github.com/cloudwego/eino-ext/components/model/openai"
 	"github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/components/prompt"
@@ -21,6 +18,8 @@ import (
 	"github.com/cloudwego/eino/compose"
 	"github.com/cloudwego/eino/flow/agent/react"
 	"github.com/cloudwego/eino/schema"
+	"github.com/joho/godotenv"
+	"github.com/rs/zerolog/log"
 
 	"github.com/stumble/axe/code/container"
 	"github.com/stumble/axe/history"

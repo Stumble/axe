@@ -1,0 +1,76 @@
+name: Go Unit Tests with HTML Report
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+# Pages 虽然可以上传文件并展示html，但是页面会是公开的,部分开源仓库可以使用。
+# permissions:
+#   contents: read
+#   pages: write # 允许写入 GitHub Pages
+#   id-token: write # 如果使用 OIDC 令牌
+permissions:
+  contents: read
+  pull-requests: write # 允许写入 PR 评论
+
+jobs:
+  test:
+    runs-on: ubuntu-22.04
+    env:
+      GOPRIVATE: github.com/stumble/*
+      GITHUB_ACCESS_TOKEN: ${{ secrets.CICD_DOCKER_BUILD_PAT2 }}
+    steps:
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: '1.24'
+        cache: true
+
+    - run: git config --global url.https://$GITHUB_ACCESS_TOKEN@github.com/.insteadOf https://github.com/
+
+    - name: Check out code
+      uses: actions/checkout@v4
+
+    - name: Install go-test-report
+      run: |
+        # go get -u github.com/vakenbolt/go-test-report
+        go install github.com/vakenbolt/go-test-report@v0.9.3
+        go install gotest.tools/gotestsum@v1.12.3
+
+    - name: Run tests and generate report html
+      run: |
+        export PATH=$(go env GOPATH)/bin:$PATH
+        set -o pipefail # 启用 pipefail
+        go test -coverprofile=coverage.out -covermode=atomic -json -p 1 ./...  | tee >(go-test-report -o test-report.html) | gotestsum
+    
+    - name: Upload HTML test report
+      if: always() # 确保即使测试失败也尝试上传报告（如果已生成）
+      uses: actions/upload-artifact@v4
+      with:
+        name: go-test-report-html
+        path: test-report.html
+        retention-days: 7 # 可选：报告保留天数
+    
+    - name: gengerate coverage report
+      id: code_coverage
+      run: |
+        export PATH=$(go env GOPATH)/bin:$PATH
+        go tool cover -func=coverage.out
+        codecov=$(go tool cover -func=coverage.out | tail -n 1 | awk '{print $3}')
+        echo "codecov=$codecov" >> $GITHUB_OUTPUT
+
+    - name: Add PR comment
+      uses: actions/github-script@v7
+      # 只有当事件是 pull_request 时才运行这个 job
+      if: github.event_name == 'pull_request'
+      with:
+        script: |
+          const output = `${{ steps.code_coverage.outputs.codecov }}`; // 从上一步获取结果
+          github.rest.issues.createComment({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            issue_number: context.issue.number, // context.issue.number 是 PR 的编号
+            body: `**Code coverage:** ${output}`
+          });
