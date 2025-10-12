@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strings"
 
 	"github.com/cloudwego/eino/schema"
 	"github.com/rs/zerolog/log"
@@ -46,7 +47,24 @@ func (r *Runner) streamFrame(out chan<- string, frame any) {
 					out <- fmt.Sprintf("Tool call function name: %s\n", toolCall.Function.Name)
 					out <- "Tool call arguments:\n"
 				}
-				out <- toolCall.Function.Arguments
+
+				if strings.TrimSpace(toolCall.Function.Arguments) == "" {
+					continue
+				}
+
+				decoder := NewJSONStreamDecoder(strings.NewReader(toolCall.Function.Arguments))
+				if err := decoder.Stream(func(chunk string) error {
+					out <- chunk
+					return nil
+				}); err != nil {
+					var partialErr *PartialJSONError
+					if errors.As(err, &partialErr) && partialErr.Partial() {
+						log.Debug().Err(err).Msg("partially decoded tool arguments")
+						continue
+					}
+					log.Debug().Err(err).Msg("failed to decode tool arguments")
+					out <- toolCall.Function.Arguments
+				}
 			}
 		}
 	default:
