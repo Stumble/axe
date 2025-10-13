@@ -664,6 +664,9 @@ func processPatch(
 }
 
 func ApplyPatch(cc FileSystem, patchText string) (string, error) {
+	// remove newlines at the beginning and end
+	patchText = strings.TrimSpace(patchText)
+	patchText += "\n"
 	return processPatch(patchText, cc.Open, cc.Write, cc.Remove)
 }
 

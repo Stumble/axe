@@ -478,3 +478,25 @@ func (s *PatchSuite) TestApplyPatch() {
 		})
 	}
 }
+
+func (s *PatchSuite) TestApplyPatchWithNewlines() {
+	patchText := `
+*** Begin Patch
+*** Update File: foo.txt
+@@ line1
+ line1
+-line2
++line2 updated
+ line3
+*** End of File
+*** End Patch
+`
+
+	fs := newFakeFileSystem(map[string]string{
+		"foo.txt": "line1\nline2\nline3",
+	})
+	result, err := ApplyPatch(fs, patchText)
+	s.Require().NoError(err)
+	s.Equal("Done!", result)
+	s.Equal("line1\nline2 updated\nline3", fs.files["foo.txt"])
+}
