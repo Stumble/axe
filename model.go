@@ -35,6 +35,9 @@ func newChatModel(ctx context.Context, desiredModel ModelName) (model.ToolCallin
 		baseURL = openAIDefaultBaseURL
 	}
 	temp := float32(0)
+	if desiredModel == ModelGPT5 {
+		temp = 1.0
+	}
 
 	chatModel, err := einoopenai.NewChatModel(ctx, &einoopenai.ChatModelConfig{
 		APIKey:      apiKey,
