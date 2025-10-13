@@ -1,6 +1,7 @@
 package json_stream_decoder
 
 import (
+	"io"
 	"strings"
 	"testing"
 
@@ -50,4 +51,57 @@ func TestJSONStreamDecoderErrorsOnUnsupportedTypes(t *testing.T) {
 	decoder := NewJSONStreamDecoder(strings.NewReader(input))
 	err := decoder.Stream(func(string) error { return nil })
 	require.Error(t, err)
+}
+
+func TestJSONStreamDecoderStreamsFromPipeBeforeClose(t *testing.T) {
+	pr, pw := io.Pipe()
+	decoder := NewJSONStreamDecoder(pr)
+
+	chunksCh := make(chan string, 16)
+	doneCh := make(chan error, 1)
+
+	go func() {
+		err := decoder.Stream(func(s string) error {
+			chunksCh <- s
+			return nil
+		})
+		doneCh <- err
+		close(chunksCh)
+	}()
+
+	// Write the JSON up to the start of the string value so the key is emitted
+	_, err := pw.Write([]byte(`{"code_output":"`))
+	require.NoError(t, err)
+
+	// Expect the key chunk
+	keyChunk := <-chunksCh
+	require.Equal(t, "code_output:", keyChunk)
+
+	// Write a partial value but do not finish or close the pipe yet
+	_, err = pw.Write([]byte("partial value"))
+	require.NoError(t, err)
+
+	// We should receive the partial value before the writer is closed
+	select {
+	case got := <-chunksCh:
+		require.Equal(t, "partial value", got)
+	default:
+		t.Fatalf("expected partial chunk emission before closing the pipe")
+	}
+
+	// The stream should still be running at this point
+	select {
+	case err := <-doneCh:
+		t.Fatalf("stream finished early: %v", err)
+	default:
+	}
+
+	// Now finish the JSON value and close
+	_, err = pw.Write([]byte(`"}`))
+	require.NoError(t, err)
+	require.NoError(t, pw.Close())
+
+	// Ensure the stream finishes without error
+	err = <-doneCh
+	require.NoError(t, err)
 }

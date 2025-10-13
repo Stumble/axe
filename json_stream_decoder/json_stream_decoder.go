@@ -94,7 +94,7 @@ func (d *JSONStreamDecoder) Stream(out func(string) error) error {
 		if err != nil {
 			return d.wrapError(err)
 		}
-		if err := d.emit(out, fmt.Sprintf("%s:\n", key)); err != nil {
+		if err := d.emit(out, fmt.Sprintf("%s:", key)); err != nil {
 			return err
 		}
 
@@ -216,7 +216,7 @@ func (d *JSONStreamDecoder) readStringValue(out func(string) error) error {
 		if err != nil {
 			if errors.Is(err, io.EOF) {
 				if sb.Len() > 0 {
-					if err := d.emit(out, ensureTrailingNewline(sb.String())); err != nil {
+					if err := d.emit(out, sb.String()); err != nil {
 						return err
 					}
 				}
@@ -225,33 +225,53 @@ func (d *JSONStreamDecoder) readStringValue(out func(string) error) error {
 			return err
 		}
 		if b == '"' {
-			return d.emit(out, ensureTrailingNewline(sb.String()))
+			return d.emit(out, sb.String())
 		}
 		if b == '\\' {
 			decoded, err := d.readEscape()
 			sb.WriteString(decoded)
 			if err != nil {
 				if sb.Len() > 0 {
-					if err := d.emit(out, ensureTrailingNewline(sb.String())); err != nil {
+					if err := d.emit(out, sb.String()); err != nil {
 						return err
 					}
 				}
 				return err
 			}
+			// If no more buffered bytes are immediately available, flush partial chunk
+			if d.reader.Buffered() == 0 && sb.Len() > 0 {
+				if err := d.emit(out, sb.String()); err != nil {
+					return err
+				}
+				sb.Reset()
+			}
 			continue
 		}
 		sb.WriteByte(b)
+		// If no more buffered bytes are immediately available, flush partial chunk
+		if d.reader.Buffered() == 0 && sb.Len() > 0 {
+			if err := d.emit(out, sb.String()); err != nil {
+				return err
+			}
+			sb.Reset()
+		}
 	}
 }
 
 func (d *JSONStreamDecoder) readLiteralValue(out func(string) error) error {
 	var sb strings.Builder
+	// Track whether we have produced any output for this value to avoid spurious EOF errors
+	valueHasData := false
 	for {
 		b, err := d.reader.ReadByte()
 		if err != nil {
 			if errors.Is(err, io.EOF) {
 				if sb.Len() > 0 {
-					return d.emit(out, ensureTrailingNewline(sb.String()))
+					return d.emit(out, sb.String())
+				}
+				if valueHasData {
+					// We've already emitted partial content; treat EOF as value end
+					return nil
 				}
 				return io.ErrUnexpectedEOF
 			}
@@ -267,21 +287,41 @@ func (d *JSONStreamDecoder) readLiteralValue(out func(string) error) error {
 					if errors.Is(err, io.EOF) {
 						// whitespace exhausted, treat as success
 						if sb.Len() == 0 {
+							if valueHasData {
+								return nil
+							}
 							return io.ErrUnexpectedEOF
 						}
-						return d.emit(out, ensureTrailingNewline(sb.String()))
+						return d.emit(out, sb.String())
 					}
 					return err
 				}
 			}
+			// End of value; emit any remaining buffered text and finish
+			if sb.Len() > 0 {
+				return d.emit(out, sb.String())
+			}
+			if valueHasData {
+				return nil
+			}
 			break
 		}
 		sb.WriteByte(b)
+		if d.reader.Buffered() == 0 && sb.Len() > 0 {
+			if err := d.emit(out, sb.String()); err != nil {
+				return err
+			}
+			sb.Reset()
+			valueHasData = true
+		}
 	}
 	if sb.Len() == 0 {
+		if valueHasData {
+			return nil
+		}
 		return io.ErrUnexpectedEOF
 	}
-	return d.emit(out, ensureTrailingNewline(sb.String()))
+	return d.emit(out, sb.String())
 }
 
 func (d *JSONStreamDecoder) readEscape() (string, error) {
@@ -343,13 +383,6 @@ func (d *JSONStreamDecoder) readEscape() (string, error) {
 	default:
 		return "", fmt.Errorf("invalid escape sequence \\%c", b)
 	}
-}
-
-func ensureTrailingNewline(s string) string {
-	if strings.HasSuffix(s, "\n") {
-		return s
-	}
-	return s + "\n"
 }
 
 func isSpace(b byte) bool {
