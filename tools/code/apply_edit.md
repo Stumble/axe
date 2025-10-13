@@ -53,7 +53,6 @@ Bug report: “sum() should guard against non-numbers.”
 
 Fix with a patch:
 <ApplyDiff path="main.js"><![CDATA[
-@@ function sum(a, b)
 export function sum(a, b) {
 -   return a + b;
 +   if (typeof a !== "number" || typeof b !== "number") {
@@ -88,7 +87,6 @@ export function sum(a, b) {
 
 ```xml
 <ApplyDiff path="main.js"><![CDATA[
-@@ function buildDataBrief(onchainData, validationData)
   const validation = {
 -   official_data_available: official.total_supply !== null,
 +   official_present: typeof official.total_supply === 'number',
