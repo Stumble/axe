@@ -3,30 +3,14 @@ package container
 import (
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 
-	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
 )
 
 type ContextSuite struct{ suite.Suite }
 
 func TestContextSuite(t *testing.T) { suite.Run(t, new(ContextSuite)) }
-
-// helper to construct a single-hunk patch similar to code/diff tests
-func mkPatch(pre, del, add, post []string) string {
-	var b []string
-	b = append(b, pre...)
-	for _, d := range del {
-		b = append(b, "- "+d)
-	}
-	for _, a := range add {
-		b = append(b, "+ "+a)
-	}
-	b = append(b, post...)
-	return strings.Join(b, "\n")
-}
 
 func (s *ContextSuite) TestBuildCodeInput_SortingAndFilter() {
 	files := map[string]string{"b.txt": "B", "a.txt": "A", "c.txt": "C"}
@@ -64,71 +48,17 @@ func (s *ContextSuite) TestRenderCodeInput_CDATA_Splits_EndMarker() {
 	s.Contains(xml, "]]]]><![CDATA[>")
 }
 
-func (s *ContextSuite) TestParseCodeOutput_Unmarshal() {
-	outXML := `
-<CodeOutput version="t1">
-  <Rewrite path="a.txt"><![CDATA[
-new content
-]]></Rewrite>
-  <ApplyDiff path="b.txt"><![CDATA[
-line1
-- line2
-+ line2 changed
-line3
-]]></ApplyDiff>
-</CodeOutput>`
-	out, err := ParseCodeOutput(outXML)
-	s.Require().NoError(err)
-	s.Equal("t1", out.Version)
-	s.Require().Len(out.Rewrites, 1)
-	s.Require().Len(out.ApplyDiffs, 1)
-	s.Equal("a.txt", out.Rewrites[0].Path)
-	s.Equal("b.txt", out.ApplyDiffs[0].Path)
-	s.Contains(out.Rewrites[0].Content, "new content")
-	s.Contains(out.ApplyDiffs[0].Patch, "- line2")
-}
-
-func (s *ContextSuite) TestApplyEdits_Rewrite_And_Diff() {
-	files := map[string]string{
-		"a.txt": "old\n",
-		"b.txt": "line1\nline2\nline3\n",
-	}
-	patch := mkPatch([]string{"line1"}, []string{"line2"}, []string{"line2 changed"}, []string{"line3"})
-	out := CodeOutput{
-		Version:    "v",
-		Rewrites:   []CodeOutputRewrite{{Path: "a.txt", Content: "new\n"}},
-		ApplyDiffs: []CodeOutputDiff{{Path: "b.txt", Patch: patch}},
-	}
-	updated, changed, err := ApplyEdits(files, out)
-	s.Require().NoError(err)
-	s.ElementsMatch([]string{"a.txt", "b.txt"}, changed)
-	s.Equal("new\n", updated["a.txt"])
-	s.Equal("line1\nline2 changed\nline3\n", updated["b.txt"])
-}
-
-func (s *ContextSuite) TestCodeContainer_Apply_And_Files() {
-	cc := NewCodeContainer(map[string]string{"f.js": "a\nb\nc\n", "x": "1"})
-	patch := mkPatch([]string{"a"}, []string{"b"}, []string{"B"}, []string{"c"})
-	out := CodeOutput{ApplyDiffs: []CodeOutputDiff{{Path: "f.js", Patch: patch}}, Rewrites: []CodeOutputRewrite{{Path: "x", Content: "2"}}}
-	changed, err := cc.Apply(out)
-	s.Require().NoError(err)
-	s.ElementsMatch([]string{"f.js", "x"}, changed)
-	files := cc.Files()
-	s.Equal("2", files["x"])
-	s.Equal("a\nB\nc\n", files["f.js"])
-}
-
 func (s *ContextSuite) TestCodeContainer_WriteToFiles() {
 	dir := s.T().TempDir()
 	cc := NewCodeContainer(map[string]string{
 		filepath.Join(dir, "d1", "f.txt"): "alpha",
 		filepath.Join(dir, "f2.txt"):      "beta",
 	})
-	wrote, err := cc.WriteToFiles(nil)
+	err := cc.WriteToFiles()
 	s.Require().NoError(err)
 	// compare relative to base dir for determinism
-	rel := make([]string, 0, len(wrote))
-	for _, p := range wrote {
+	rel := make([]string, 0, len(cc.Files()))
+	for p := range cc.Files() {
 		rp, rerr := filepath.Rel(dir, p)
 		s.Require().NoError(rerr)
 		rel = append(rel, rp)
@@ -143,31 +73,120 @@ func (s *ContextSuite) TestCodeContainer_WriteToFiles() {
 	s.Equal("beta", string(data2))
 }
 
-func (s *ContextSuite) TestCodeOutput_WriteToFiles_Wrapper() {
+func (s *ContextSuite) TestCodeContainer_Apply() {
 	dir := s.T().TempDir()
-	// seed file
-	require.NoError(s.T(), os.MkdirAll(dir, 0o755))
-	require.NoError(s.T(), os.WriteFile(filepath.Join(dir, "t.txt"), []byte("x\ny\n"), 0o644))
+	updatePath := filepath.Join(dir, "update.txt")
+	deletePath := filepath.Join(dir, "delete.txt")
+	newPath := filepath.Join(dir, "new.txt")
 
-	cc := NewCodeContainer(map[string]string{filepath.Join(dir, "t.txt"): "x\ny\n"})
-	patch := mkPatch([]string{"x"}, []string{"y"}, []string{"z"}, nil)
-	out := CodeOutput{ApplyDiffs: []CodeOutputDiff{{Path: filepath.Join(dir, "t.txt"), Patch: patch}}}
-	changed, err := cc.Apply(out)
+	// Setup initial files
+	cc := NewCodeContainer(map[string]string{
+		updatePath: "line1\nline2\nline3",
+		deletePath: "will be deleted",
+	})
+
+	// Test applying a patch with updates, deletions and additions
+	patchText := `*** Begin Patch
+*** Update File: ` + updatePath + `
+@@ line1
+ line1
+-line2
++line2-modified
+ line3
+*** End of File
+*** Delete File: ` + deletePath + `
+*** Add File: ` + newPath + `
++new content
+*** End Patch`
+
+	output := CodeOutput{Patch: patchText}
+	msg, err := cc.Apply(output)
 	s.Require().NoError(err)
-	_, err = cc.WriteToFiles(changed)
+	s.Equal("Done!", msg)
+
+	// Verify the updates in memory
+	files := cc.Files()
+	s.Equal("line1\nline2-modified\nline3", files[updatePath])
+	s.Equal("new content", files[newPath])
+	_, exists := files[deletePath]
+	s.False(exists, "deleted file should not be in container")
+}
+
+func (s *ContextSuite) TestCodeContainer_Apply_InvalidPatch() {
+	cc := NewCodeContainer(map[string]string{
+		"test.txt": "content",
+	})
+
+	// Test with invalid patch format (missing sentinels)
+	output := CodeOutput{Patch: "invalid patch text"}
+	_, err := cc.Apply(output)
+	s.Require().Error(err)
+	s.Contains(err.Error(), "Patch text must start with")
+}
+
+func (s *ContextSuite) TestCodeContainer_WriteToFiles_WithDeletes() {
+	dir := s.T().TempDir()
+
+	// Create initial files on disk
+	f1Path := filepath.Join(dir, "keep.txt")
+	f2Path := filepath.Join(dir, "delete.txt")
+	err := os.WriteFile(f1Path, []byte("keep this"), 0o644)
 	s.Require().NoError(err)
-	// compare changed relative to dir
-	rel := make([]string, 0, len(changed))
-	for _, p := range changed {
-		rp, rerr := filepath.Rel(dir, p)
-		s.Require().NoError(rerr)
-		rel = append(rel, rp)
-	}
-	s.Equal([]string{"t.txt"}, rel)
-	// in-memory updated
-	s.Equal("x\nz\n", cc.Files()[filepath.Join(dir, "t.txt")])
-	// on-disk updated
-	data, err := os.ReadFile(filepath.Join(dir, "t.txt"))
+	err = os.WriteFile(f2Path, []byte("delete this"), 0o644)
 	s.Require().NoError(err)
-	s.Equal("x\nz\n", string(data))
+
+	// Verify both files exist
+	_, err = os.Stat(f1Path)
+	s.Require().NoError(err)
+	_, err = os.Stat(f2Path)
+	s.Require().NoError(err)
+
+	// Create container with only one file and mark the other as deleted
+	cc := NewCodeContainer(map[string]string{
+		f1Path: "keep this modified",
+	})
+	// Simulate deletion
+	err = cc.Remove(f2Path)
+	s.Require().NoError(err)
+
+	// Write changes to disk
+	err = cc.WriteToFiles()
+	s.Require().NoError(err)
+
+	// Verify kept file was updated
+	data, err := os.ReadFile(f1Path)
+	s.Require().NoError(err)
+	s.Equal("keep this modified", string(data))
+
+	// Verify deleted file is gone
+	_, err = os.Stat(f2Path)
+	s.True(os.IsNotExist(err), "deleted file should not exist on disk")
+}
+
+func (s *ContextSuite) TestCodeContainer_WriteToFiles_PreservesPermissions() {
+	dir := s.T().TempDir()
+	execPath := filepath.Join(dir, "script.sh")
+
+	// Create an executable file
+	err := os.WriteFile(execPath, []byte("#!/bin/bash\necho hello"), 0o755)
+	s.Require().NoError(err)
+
+	// Read it into container and modify
+	cc := NewCodeContainer(map[string]string{
+		execPath: "#!/bin/bash\necho world",
+	})
+
+	// Write back
+	err = cc.WriteToFiles()
+	s.Require().NoError(err)
+
+	// Check permissions are preserved
+	info, err := os.Stat(execPath)
+	s.Require().NoError(err)
+	s.Equal(os.FileMode(0o755), info.Mode().Perm())
+
+	// Verify content was updated
+	data, err := os.ReadFile(execPath)
+	s.Require().NoError(err)
+	s.Equal("#!/bin/bash\necho world", string(data))
 }

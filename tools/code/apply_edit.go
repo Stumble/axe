@@ -80,25 +80,17 @@ func (t *ApplyEditTool) InvokableRun(ctx context.Context, argumentsInJSON string
 		return fmt.Sprintf("apply_edit: failed to parse CodeOutput XML: %v", err), nil
 	}
 
-	changed, err := t.Code.Apply(co)
+	msg, err := t.Code.Apply(co)
 	if err != nil {
 		return fmt.Sprintf("apply_edit: failed to apply edits: %v", err), nil
 	}
 
-	if len(changed) == 0 {
-		return "apply_edit: no changes to apply", nil
-	}
-
-	log.Debug().Msgf("apply_edit: changed files: %s", strings.Join(changed, ", "))
-
 	// Persist only the changed files. Empty baseDir writes paths as-is (absolute or relative).
-	written, err := t.Code.WriteToFiles(changed)
+	err = t.Code.WriteToFiles()
 	if err != nil {
 		return fmt.Sprintf("failed to write files: %v", err), nil
 	}
 
-	log.Debug().Msgf("apply_edit: written files: %s", strings.Join(written, ", "))
-
 	// Build a concise summary
-	return fmt.Sprintf("Applied edits to %d file(s): %s", len(written), strings.Join(written, ", ")), nil
+	return fmt.Sprintf("apply_edit successfully applied edits: %s", msg), nil
 }
