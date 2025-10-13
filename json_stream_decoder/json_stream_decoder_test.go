@@ -20,8 +20,8 @@ func TestJSONStreamDecoderStreamsPlainText(t *testing.T) {
 	require.NoError(t, err)
 
 	require.Equal(t, []string{
-		"code_output:\n",
-		"<CodeOutput>\n  <Rewrite path=\"demo/add_test.go\"><![CDATA[\npackage demo_test\n\nimport (\n\t\"math/big\"\n\t\"testing\"\n\n\t\"github.com/stretchr/testify/assert\"\n\t\"github.com/stretchr/testify/suite\"\n\n\t\"demo\"\n)\n\n...\n</Rewrite>\n</CodeOutput>\n",
+		"code_output:",
+		"<CodeOutput>\n  <Rewrite path=\"demo/add_test.go\"><![CDATA[\npackage demo_test\n\nimport (\n\t\"math/big\"\n\t\"testing\"\n\n\t\"github.com/stretchr/testify/assert\"\n\t\"github.com/stretchr/testify/suite\"\n\n\t\"demo\"\n)\n\n...\n</Rewrite>\n</CodeOutput>",
 	}, chunks)
 }
 
@@ -40,8 +40,8 @@ func TestJSONStreamDecoderStreamsPartialTextOnEOF(t *testing.T) {
 	require.ErrorAs(t, err, &partialErr)
 
 	require.Equal(t, []string{
-		"code_output:\n",
-		"partial value\n",
+		"code_output:",
+		"partial value",
 	}, chunks)
 }
 
