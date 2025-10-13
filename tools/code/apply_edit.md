@@ -9,11 +9,14 @@ Use this tool to apply code edits to the in-memory code container and write only
 
 <code-edit-specification>
 
-Use the following diff specification for applying code edits.
-
 #### Rewrite
 
 - Use <Rewrite path="path-of-the-file"><![CDATA[...]]></Rewrite> to create or overwrite a full code file.
+- Rewrite is preferred over ApplyDiff unless the file is large and you want to make small, focused fixes.
+- You can use Rewrite to create a new file.
+
+#### ApplyDiff format (simple V4A-inspired)
+
 - To make small, focused fixes, prefer a patch:
   <ApplyDiff path="path-of-the-file"><![CDATA[
   [YOUR_PATCH_HUNK_FOO]
@@ -23,11 +26,9 @@ Use the following diff specification for applying code edits.
   [... more hunks ...]
   ]]></ApplyDiff>
 
-#### ApplyDiff format (simple V4A-inspired)
-
-- Patches operate on ONE file only (the path named in `path`).
-- Limit: Only ONE `<ApplyDiff>` may be emitted per execution. Do not chain multiple edits. If further changes are needed, emit a new `<Rewrite>` to overwrite the file.
+- You can issue multiple ApplyDiff edits to the same file. They will be applied in order. This allows you to make multiple small, focused fixes to the same file.
 - Wrap nothing else; put only `[YOUR_PATCH]` between ApplyDiff tags.
+- DO NOT USE @@ to add anchors to the patch. This is not supported.
 - A patch consists of one or more **hunks**. Separate hunks with a line that contains only `---` (three dashes).
 - In each hunk:
   - 3 lines (unless beginning of the file) of **pre-context** (unprefixed; must match the file exactly).
@@ -43,11 +44,11 @@ Use the following diff specification for applying code edits.
 
 #### Example
 Initial code:
-<Rewrite path="main.js"><![CDATA[
+```javascript
 export function sum(a, b) {
   return a + b;
 }
-]]></Rewrite>
+```
 
 Bug report: “sum() should guard against non-numbers.”
 
@@ -80,16 +81,15 @@ export function sum(a, b) {
 * [ ] Contains at least one `+ ` or `- ` line
 * [ ] Every change has 3 lines of unprefixed context (unless at start/end of file)
 * [ ] No large unprefixed blocks (i.e., not a full program dump)
-* [ ] Only one `<ApplyDiff>` was emitted this turn
-* [ ] Edited line count ≤ 30% and ≤ 200 lines (else ask for `<Rewrite>` overwrite)
+* [ ] No @@ anchors
 
 ### ✅ Correct minimal patch
 
 ```xml
 <ApplyDiff path="main.js"><![CDATA[
   const validation = {
--   official_data_available: official.total_supply !== null,
-+   official_present: typeof official.total_supply === 'number',
+-    official_data_available: official.total_supply !== null,
++    official_present: typeof official.total_supply === 'number',
     aggregator_data_count: validation.aggregator_comparison
       .filter(a => a.reported_supply !== null).length,
     data_consistency: validation.overall_validation.includes('Strong')
