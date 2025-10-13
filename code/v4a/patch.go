@@ -28,6 +28,8 @@ const (
 	ActionDelete ActionType = "delete"
 	ActionUpdate ActionType = "update"
 	ModeKeep     string     = "keep"
+	ModeAdd      string     = "add"
+	ModeDelete   string     = "delete"
 )
 
 type FileChange struct {
@@ -363,6 +365,7 @@ func findContext(lines, context []string, start int, eof bool) (int, int) {
 	return findContextCore(lines, context, start)
 }
 
+// Replace the entire peekNextSection with this version.
 func peekNextSection(lines []string, index int) ([]string, []Chunk, int, bool, error) {
 	var old []string
 	var delLines []string
@@ -381,7 +384,9 @@ func peekNextSection(lines []string, index int) ([]string, []Chunk, int, bool, e
 	}
 
 	for index < len(lines) {
-		s := lines[index]
+		raw := lines[index]
+		s := norm(raw) // normalize for sentinel checks
+
 		if startsWithAny(s,
 			"@@",
 			"*** End Patch",
@@ -396,25 +401,27 @@ func peekNextSection(lines []string, index int) ([]string, []Chunk, int, bool, e
 			break
 		}
 		if strings.HasPrefix(s, "***") {
-			return nil, nil, 0, false, diffErrorf("Invalid Line: %s", s)
+			return nil, nil, 0, false, diffErrorf("Invalid Line: %s", raw)
 		}
 		index++
 
 		lastMode := mode
-		if s == "" {
-			s = " "
+		// Use the *raw* line for hunk markers so leading +/-/space is read correctly.
+		line := raw
+		if line == "" {
+			line = " "
 		}
-		switch s[0] {
+		switch line[0] {
 		case '+':
-			mode = "add"
+			mode = ModeAdd
 		case '-':
-			mode = "delete"
+			mode = ModeDelete
 		case ' ':
 			mode = ModeKeep
 		default:
-			return nil, nil, 0, false, diffErrorf("Invalid Line: %s", s)
+			return nil, nil, 0, false, diffErrorf("Invalid Line: %s", raw)
 		}
-		s = s[1:]
+		line = line[1:]
 
 		if mode == ModeKeep && lastMode != mode {
 			if len(insLines) > 0 || len(delLines) > 0 {
@@ -429,13 +436,13 @@ func peekNextSection(lines []string, index int) ([]string, []Chunk, int, bool, e
 		}
 
 		switch mode {
-		case "delete":
-			delLines = append(delLines, s)
-			old = append(old, s)
-		case "add":
-			insLines = append(insLines, s)
+		case ModeDelete:
+			delLines = append(delLines, line)
+			old = append(old, line)
+		case ModeAdd:
+			insLines = append(insLines, line)
 		case ModeKeep:
-			old = append(old, s)
+			old = append(old, line)
 		}
 	}
 
@@ -447,7 +454,8 @@ func peekNextSection(lines []string, index int) ([]string, []Chunk, int, bool, e
 		})
 	}
 
-	if index < len(lines) && lines[index] == "*** End of File" {
+	// CR-safe check for EOF sentinel
+	if index < len(lines) && norm(lines[index]) == "*** End of File" {
 		index++
 		return old, chunks, index, true, nil
 	}
@@ -663,14 +671,34 @@ func ApplyPatch(cc FileSystem, patchText string) (string, error) {
 //  Utilities (parity helpers)
 // --------------------------------------------------------------------------- //
 
+// It splits on \n, \r\n, and \r; does not keep the separators;
+// and behaves like Python's str.splitlines(keepends=False).
 func splitLinesLikePython(s string) []string {
-	// Python's str.splitlines() (without keepends) drops the trailing empty line
-	// if the string ends with '\n'. We emulate that behavior here to keep
-	// sentinel checks identical to the reference implementation.
-	lines := strings.Split(s, "\n")
-	if len(s) > 0 && s[len(s)-1] == '\n' {
-		// remove trailing empty element
-		lines = lines[:len(lines)-1]
+	var lines []string
+	start := 0
+	i := 0
+	for i < len(s) {
+		switch s[i] {
+		case '\n':
+			lines = append(lines, s[start:i])
+			i++
+			start = i
+		case '\r':
+			lines = append(lines, s[start:i])
+			// Treat \r\n as a single line break
+			if i+1 < len(s) && s[i+1] == '\n' {
+				i += 2
+			} else {
+				i++
+			}
+			start = i
+		default:
+			i++
+		}
+	}
+	// Append trailing fragment if the string didn't end with a linebreak
+	if start != len(s) {
+		lines = append(lines, s[start:])
 	}
 	return lines
 }

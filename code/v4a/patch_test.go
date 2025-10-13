@@ -38,12 +38,11 @@ func (s *PatchSuite) TestSplitLinesLikePython() {
 		{
 			name:  "empty string",
 			input: "",
-			want:  []string{""},
+			want:  nil,
 		},
 	}
 
 	for _, tc := range cases {
-		tc := tc
 		s.Run(tc.name, func() {
 			got := splitLinesLikePython(tc.input)
 			s.Require().Equal(tc.want, got)
