@@ -1,4 +1,4 @@
-package axe
+package json_stream_decoder
 
 import (
 	"bufio"
