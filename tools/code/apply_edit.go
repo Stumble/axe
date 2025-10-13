@@ -21,7 +21,7 @@ const (
 )
 
 //go:embed apply_edit.md
-var applyEditDoc string
+var ApplyEditDoc string
 
 // ApplyEditTool applies a CodeOutput XML to an in-memory CodeContainer and persists changes to disk.
 //
@@ -41,7 +41,7 @@ type ApplyEditRequest struct {
 func (t *ApplyEditTool) Info(ctx context.Context) (*schema.ToolInfo, error) {
 	return &schema.ToolInfo{
 		Name: ApplyEditToolName,
-		Desc: applyEditDoc,
+		Desc: "Apply your code edits with <CodeOutput> XML format. Must follow the <CodeOutput> XML schema.",
 		ParamsOneOf: schema.NewParamsOneOfByParams(map[string]*schema.ParameterInfo{
 			"code_output": {
 				Type:     schema.String,

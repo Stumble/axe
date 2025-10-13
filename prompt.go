@@ -20,7 +20,11 @@ Fundamental Tools:
 3. Additionally, you can call user-provided CLI tools when needed. Choose the appropriate tool at the right time.
 
 Rules:
-1. Reason about the plan before calling tools, cite file paths explicitly, and avoid editing files that were not provided.`
+1. Reason about the plan before calling tools, cite file paths explicitly, and avoid editing files that were not provided.
+
+CodeOutput XML schema:
+{{ code_output_xml_schema }}
+`
 
 	usr := `
 # Instruction: 
@@ -36,6 +40,7 @@ Rules:
 	instruction := strings.TrimSpace(strings.Join(r.Instructions, "\n"))
 	vars := map[string]any{
 		"apply_tool":    code.ApplyEditToolName,
+		"code_output_xml_schema": code.ApplyEditDoc,
 		"finalize_tool": finalize.FinalizeToolName,
 		"instruction":   instruction,
 		"code_input":    codeInputXML,

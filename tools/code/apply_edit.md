@@ -28,7 +28,7 @@ Use this tool to apply code edits to the in-memory code container and write only
 
 - You can issue multiple ApplyDiff edits to the same file. They will be applied in order. This allows you to make multiple small, focused fixes to the same file.
 - Wrap nothing else; put only `[YOUR_PATCH]` between ApplyDiff tags.
-- DO NOT USE @@ to add anchors to the patch. This is not supported.
+- DO NOT USE @@ to add anchors to the patch. This is not supported. You MUST NOT use any @@ in the patch.
 - A patch consists of one or more **hunks**. Separate hunks with a line that contains only `---` (three dashes).
 - In each hunk:
   - 3 lines (unless beginning of the file) of **pre-context** (unprefixed; must match the file exactly).
@@ -71,9 +71,7 @@ export function sum(a, b) {
    * a context line (exactly matching the target file around the change), or
    * a diff line starting with `+ ` or `- `, or
    * a hunk separator line `---`
-     ⇒ **is invalid** inside `<ApplyDiff>`.
-4. **Single-target edit.** `path` must match an existing file.
-5. **Patch scope.** The edit must touch **one file only** (the file named by the target `path`).
+4. **No @@ anchors.** You MUST NOT use any @@ in the patch.
 
 ## Fast validator checklist (pre-execution)
 
@@ -129,11 +127,11 @@ function buildDataBrief(...) {
 ]]></Rewrite>
 
   <ApplyDiff path="/abs/or/relative/path.ext"><![CDATA[
-  [YOUR_PATCH_HUNK_FOO]
-  ---
-  [YOUR_PATCH_HUNK_BAR]
-  ---
-  [... more hunks ...]
+[YOUR_PATCH_HUNK_FOO]
+---
+[YOUR_PATCH_HUNK_BAR]
+---
+[... more hunks ...]
 ]]></ApplyDiff>
 </CodeOutput>
 ```
