@@ -16,6 +16,7 @@ type ModelName string
 const (
 	ModelGPT5      ModelName = "gpt-5"
 	ModelGPT4o     ModelName = "gpt-4o"
+	ModelGPT4Dot1  ModelName = "gpt-4.1"
 	ModelGPT4oMini ModelName = "gpt-4o-mini"
 )
 

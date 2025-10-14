@@ -35,7 +35,7 @@ func main() {
 		axe.WithTools([]clitool.Definition{
 			clitool.MustNewDefinition("go_test", "go test -v", "run tests under wd with 'go test -v'", nil), // command will be executed in a wd, specified by llm.
 		}),
-		axe.WithModel(axe.ModelGPT4o),
+		axe.WithModel(axe.ModelGPT4Dot1),
 	)
 	if err != nil {
 		log.Fatalf("failed to create runner: %v", err)

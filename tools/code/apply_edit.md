@@ -3,7 +3,13 @@
 Use this tool to apply code edits to the in-memory code container and write only the changed files back to disk.
 
 - **Argument (JSON)**: `{"code_output": "<CodeOutput><![CDATA[...]]></CodeOutput>"}`
-- **Edits Model**: Provide a `CodeOutput` XML with a V4A-inspired patch format text.
+- **Edits Model**: Provide a `CodeOutput` XML with a V4A patch format text.
+
+Most important principles:
+
+1. Always add a space character ' ' before context lines. This is the RULE OF V4A patch format.
+2. USE Add action instead of Update action to just completely rewrite the file. This is preferred. Unless your changes is very targeted and focused on a specific part of a file.
+3. Always wrap the patch XML in `<![CDATA[...]]>` tags within the <CodeOutput> XML tag.
 
 ## Tool call example
 
@@ -25,7 +31,7 @@ V4A is a custom format for diff/patch that makes it more convenient to add, remo
 
 Where ***YOUR_PATCH*** is the actual content of your patch, specified in the following V4A diff format.
 
-*** [ACTION] File: [path/to/file] -> ACTION can be one of Add, Update, or Delete.
+*** [ACTION] File: [path/to/file] -> ACTION can be one of Add, Update, or Delete. NOTE: use Add action instead of Update action to just completely rewrite the file. This is preferred. Unless your changes is very targeted and focused on a specific part of a file.
 For each snippet of code that needs to be changed, repeat the following:
 [context_before] -> See below for further instructions on context.
 - [old_code] -> Precede the old code with a minus sign.
@@ -55,6 +61,8 @@ Note, then, that we do not use line numbers in this diff format, as the context 
 
 
 ## Example
+
+### Update
 
 To patch file `foo.txt` to add `line2 updated` after `line2`, you can pass the following XML to the `apply_edit` tool:
 
@@ -88,3 +96,33 @@ haha
 
 Note:
 - Always add a space character ' ' before context lines.
+
+### Add
+
+To add a new file or completely rewrite a file, you can pass the following XML to the `apply_edit` tool:
+
+file `foo.txt` before patching:
+
+```text
+some random content
+random words
+```
+
+The patch XML:
+```xml
+<CodeOutput><![CDATA[
+*** Begin Patch
+*** Add File: foo.txt
++foo
++bar
++haha
+*** End Patch
+]]></CodeOutput>
+```
+
+file `foo.txt` after patching:
+```text
+foo
+bar
+haha
+```
