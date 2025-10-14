@@ -483,20 +483,285 @@ func (s *PatchSuite) TestApplyPatchWithNewlines() {
 	patchText := `
 *** Begin Patch
 *** Update File: foo.txt
-@@ line1
- line1
--line2
-+line2 updated
- line3
+@@ foo
+ foo
+-bar
++bar updated
+ haha
 *** End of File
 *** End Patch
 `
 
 	fs := newFakeFileSystem(map[string]string{
-		"foo.txt": "line1\nline2\nline3",
+		"foo.txt": "foo\nbar\nhaha",
 	})
 	result, err := ApplyPatch(fs, patchText)
 	s.Require().NoError(err)
 	s.Equal("Done!", result)
-	s.Equal("line1\nline2 updated\nline3", fs.files["foo.txt"])
+	s.Equal("foo\nbar updated\nhaha", fs.files["foo.txt"])
+}
+
+func (s *PatchSuite) TestApplyPatchDemoAddTest() {
+	// Original content of demo/add_test.go before the patch
+	originalContent := `package demo
+
+import (
+	"fmt"
+	"math/big"
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/suite"
+)
+
+func TestAdd(t *testing.T) {
+	tests := []struct {
+		a, b, expected int
+	}{
+		{
+			a:        1,
+			b:        2,
+			expected: 3,
+		},
+		{
+			a:        1,
+			b:        2,
+			expected: 3,
+		},
+	}
+	for _, test := range tests {
+		t.Run(fmt.Sprintf("Add(%d, %d)", test.a, test.b), func(t *testing.T) {
+			actual := Add(test.a, test.b)
+			if actual != test.expected {
+				t.Errorf("Add(%d, %d) = %d, expected %d", test.a, test.b, actual, test.expected)
+			}
+		})
+	}
+}
+
+type AddTestSuite struct {
+	suite.Suite
+}
+
+func (suite *AddTestSuite) TestAdd() {
+	tests := []struct {
+		a, b, expected int
+	}{
+		{
+			a:        1,
+			b:        2,
+			expected: 3,
+		},
+		{
+			a:        -1,
+			b:        -2,
+			expected: -3,
+		},
+	}
+	for _, test := range tests {
+		suite.Run(fmt.Sprintf("Add(%d, %d)", test.a, test.b), func() {
+			actual := Add(test.a, test.b)
+			assert.Equal(suite.T(), test.expected, actual, "Add(%d, %d) = %d, expected %d", test.a, test.b, actual, test.expected)
+		})
+	}
+}
+
+func (suite *AddTestSuite) TestSuperAdd() {
+	tests := []struct {
+		a, b, expected *big.Int
+	}{
+		{
+			a:        big.NewInt(1),
+			b:        big.NewInt(2),
+			expected: big.NewInt(3),
+		},
+		{
+			a:        big.NewInt(-1),
+			b:        big.NewInt(-2),
+			expected: big.NewInt(-3),
+		},
+	}
+	for _, test := range tests {
+		suite.Run(fmt.Sprintf("SuperAdd(%s, %s)", test.a, test.b), func() {
+			actual := SuperAdd(test.a, test.b)
+			assert.Equal(suite.T(), test.expected, actual, "SuperAdd(%s, %s) = %s, expected %s", test.a, test.b, actual, test.expected)
+		})
+	}
+}
+
+func TestAddTestSuite(t *testing.T) {
+	suite.Run(t, new(AddTestSuite))
+}
+`
+
+	// Expected content after applying the patch
+	expectedContent := `package demo
+
+import (
+	"fmt"
+	"math/big"
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/suite"
+)
+
+type AddTestSuite struct {
+	suite.Suite
+}
+
+func (suite *AddTestSuite) TestAdd() {
+	tests := []struct {
+		a, b, expected int
+	}{
+		{
+			a:        1,
+			b:        2,
+			expected: 3,
+		},
+		{
+			a:        -1,
+			b:        -2,
+			expected: -3,
+		},
+	}
+	for _, test := range tests {
+		suite.Run(fmt.Sprintf("Add(%d, %d)", test.a, test.b), func() {
+			actual := Add(test.a, test.b)
+			assert.Equal(suite.T(), test.expected, actual, "Add(%d, %d) = %d, expected %d", test.a, test.b, actual, test.expected)
+		})
+	}
+}
+
+func (suite *AddTestSuite) TestSuperAdd() {
+	tests := []struct {
+		a, b, expected *big.Int
+	}{
+		{
+			a:        big.NewInt(1),
+			b:        big.NewInt(2),
+			expected: big.NewInt(3),
+		},
+		{
+			a:        big.NewInt(-1),
+			b:        big.NewInt(-2),
+			expected: big.NewInt(-3),
+		},
+	}
+	for _, test := range tests {
+		suite.Run(fmt.Sprintf("SuperAdd(%s, %s)", test.a, test.b), func() {
+			actual := SuperAdd(test.a, test.b)
+			assert.Equal(suite.T(), test.expected, actual, "SuperAdd(%s, %s) = %s, expected %s", test.a, test.b, actual, test.expected)
+		})
+	}
+}
+
+func TestAddTestSuite(t *testing.T) {
+	suite.Run(t, new(AddTestSuite))
+}
+`
+
+	// Patch text that replaces the entire file
+	patchText := `*** Begin Patch
+*** Update File: demo/add_test.go
+ package demo
+ 
+ import (
+ 	"fmt"
+ 	"math/big"
+ 	"testing"
+ 
+ 	"github.com/stretchr/testify/assert"
+ 	"github.com/stretchr/testify/suite"
+ )
+ 
+-func TestAdd(t *testing.T) {
+-	tests := []struct {
+-		a, b, expected int
+-	}{
+-		{
+-			a:        1,
+-			b:        2,
+-			expected: 3,
+-		},
+-		{
+-			a:        1,
+-			b:        2,
+-			expected: 3,
+-		},
+-	}
+-	for _, test := range tests {
+-		t.Run(fmt.Sprintf("Add(%d, %d)", test.a, test.b), func(t *testing.T) {
+-			actual := Add(test.a, test.b)
+-			if actual != test.expected {
+-				t.Errorf("Add(%d, %d) = %d, expected %d", test.a, test.b, actual, test.expected)
+-			}
+-		})
+-	}
+-}
+-
+ type AddTestSuite struct {
+ 	suite.Suite
+ }
+ 
+ func (suite *AddTestSuite) TestAdd() {
+ 	tests := []struct {
+ 		a, b, expected int
+ 	}{
+ 		{
+ 			a:        1,
+ 			b:        2,
+ 			expected: 3,
+ 		},
+ 		{
+ 			a:        -1,
+ 			b:        -2,
+ 			expected: -3,
+ 		},
+ 	}
+ 	for _, test := range tests {
+ 		suite.Run(fmt.Sprintf("Add(%d, %d)", test.a, test.b), func() {
+ 			actual := Add(test.a, test.b)
+ 			assert.Equal(suite.T(), test.expected, actual, "Add(%d, %d) = %d, expected %d", test.a, test.b, actual, test.expected)
+ 		})
+ 	}
+ }
+ 
+ func (suite *AddTestSuite) TestSuperAdd() {
+ 	tests := []struct {
+ 		a, b, expected *big.Int
+ 	}{
+ 		{
+ 			a:        big.NewInt(1),
+ 			b:        big.NewInt(2),
+ 			expected: big.NewInt(3),
+ 		},
+ 		{
+ 			a:        big.NewInt(-1),
+ 			b:        big.NewInt(-2),
+ 			expected: big.NewInt(-3),
+ 		},
+ 	}
+ 	for _, test := range tests {
+ 		suite.Run(fmt.Sprintf("SuperAdd(%s, %s)", test.a, test.b), func() {
+ 			actual := SuperAdd(test.a, test.b)
+ 			assert.Equal(suite.T(), test.expected, actual, "SuperAdd(%s, %s) = %s, expected %s", test.a, test.b, actual, test.expected)
+ 		})
+ 	}
+ }
+ 
+ func TestAddTestSuite(t *testing.T) {
+ 	suite.Run(t, new(AddTestSuite))
+ }
+*** End Patch
+`
+
+	fs := newFakeFileSystem(map[string]string{
+		"demo/add_test.go": originalContent,
+	})
+
+	result, err := ApplyPatch(fs, patchText)
+	s.Require().NoError(err)
+	s.Equal("Done!", result)
+	s.Equal(expectedContent, fs.files["demo/add_test.go"])
 }

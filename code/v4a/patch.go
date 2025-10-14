@@ -650,14 +650,14 @@ func processPatch(
 	}
 	patch, _fuzz, err := textToPatch(text, orig)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("failed to parse patch: %w", err)
 	}
 	commit, err := patchToCommit(patch, orig)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("failed to convert patch to commit: %w", err)
 	}
 	if err := applyCommit(commit, writeFn, removeFn); err != nil {
-		return "", err
+		return "", fmt.Errorf("failed to apply commit: %w", err)
 	}
 	_ = _fuzz // kept for parity; could be logged if desired
 	return "Done!", nil

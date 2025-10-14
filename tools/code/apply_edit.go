@@ -46,7 +46,7 @@ func (t *ApplyEditTool) Info(ctx context.Context) (*schema.ToolInfo, error) {
 			"code_output": {
 				Type:     schema.String,
 				Required: true,
-				Desc:     "XML string of CodeOutput edits to apply.",
+				Desc:     "v4a diff text format string of CodeOutput edits to apply.",
 			},
 		}),
 	}, nil
