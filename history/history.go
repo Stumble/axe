@@ -12,6 +12,7 @@ type Changelog struct {
 	Timestamp time.Time  `xml:"Timestamp"`
 	Success   bool       `xml:"Success"`
 	Logs      []LogEntry `xml:"Logs>Log"`
+	TODO      string     `xml:"TODO"`
 }
 
 type LogEntry struct {

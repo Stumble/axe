@@ -31,6 +31,7 @@ type FinalizeTool struct {
 type FinalizeRequest struct {
 	Status    string `json:"status"`
 	Changelog string `json:"changelog,omitempty"`
+	TODO      string `json:"todo,omitempty"`
 }
 
 func (t *FinalizeTool) Info(ctx context.Context) (*schema.ToolInfo, error) {
@@ -47,6 +48,10 @@ func (t *FinalizeTool) Info(ctx context.Context) (*schema.ToolInfo, error) {
 			"changelog": {
 				Type: schema.String,
 				Desc: "A detailed changelog of the task, covering all the changes made to the code, tests.",
+			},
+			"todo": {
+				Type: schema.String,
+				Desc: "Tasks that are not yet implemented, comparing to the original instruction. Make sure to cover all the remaining tasks.",
 			},
 		}),
 	}, nil
@@ -80,6 +85,7 @@ func (t *FinalizeTool) InvokableRun(ctx context.Context, argumentsInJSON string,
 	if t.Changelog != nil {
 		t.Changelog.Success = status == StatusSuccess
 		t.Changelog.AddLog(summary)
+		t.Changelog.TODO = req.TODO
 	}
 
 	if err := react.SetReturnDirectly(ctx); err != nil {

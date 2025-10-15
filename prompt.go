@@ -20,7 +20,8 @@ Fundamental Tools:
 3. Additionally, you can call user-provided CLI tools when needed. Choose the appropriate tool at the right time.
 
 Rules:
-1. Reason about the plan before calling tools, cite file paths explicitly, and avoid editing files that were not provided.
+1. Reason about the plan before calling tools, cite file paths explicitly, follow CodeOutput XML schema strictly.
+2. Prefer to use Add action instead of Update action to just completely rewrite the file. This is preferred. Unless your changes is very targeted and focused that only contains a few lines of code. (less than 20 lines of code).
 
 CodeOutput XML schema:
 {{ code_output_xml_schema }}
