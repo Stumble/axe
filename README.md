@@ -92,7 +92,7 @@ or custom analyzers without leaving the controlled environment. Axe ships with h
 
 ## Tutorial: build a test-review assistant
 
-The `cmd/examples/great_test_writer.go/main.go` file in this repository demonstrates how to combine the
+The `cmd/examples/great_test_writer/main.go` file in this repository demonstrates how to combine the
 concepts above. The following walkthrough rebuilds that example step by step so you can adapt it to your own
 projects.
 
@@ -203,7 +203,6 @@ func main() {
 		log.Fatalf("failed to run: %v", err)
 	}
 }
-
 ```
 
 When executed, the runner creates a feedback loop where the model edits `add_test.go` until the tests pass and
