@@ -171,37 +171,39 @@ Put everything together inside your `main` function:
 package main
 
 import (
-    "context"
-    "log"
+	"context"
+	"log"
+	"os"
 
-    "github.com/rs/zerolog"
+	"github.com/rs/zerolog"
 
-    "github.com/stumble/axe"
-    cc "github.com/stumble/axe/code/container"
-    clitool "github.com/stumble/axe/tools/cli"
+	"github.com/stumble/axe"
+	cc "github.com/stumble/axe/code/container"
+	clitool "github.com/stumble/axe/tools/cli"
 )
 
 func main() {
-    zerolog.SetGlobalLevel(zerolog.InfoLevel)
-    baseDir := "demo" // relative to current working directory
-
-    runner, err := axe.NewRunner(
-        baseDir,
-        []string{instruction},
-        cc.MustNewCodeContainerFromFS(baseDir, []string{"add.go", "add_test.go"}),
-        axe.WithTools([]clitool.Definition{
-            clitool.MustNewDefinition("go_test", "go test -v", "run tests under wd with 'go test -v'", nil),
-        }),
-        axe.WithModel(axe.ModelGPT4Dot1),
-    )
-    if err != nil {
-        log.Fatalf("failed to create runner: %v", err)
-    }
-
-    if err := runner.Run(context.Background(), true); err != nil {
-        log.Fatalf("failed to run: %v", err)
-    }
+	zerolog.SetGlobalLevel(zerolog.InfoLevel)
+	baseDir := "demo" // relative to current working directory
+	runner, err := axe.NewRunner(
+		baseDir,
+		[]string{instruction},
+		cc.MustNewCodeContainerFromFS(baseDir, []string{"add.go", "add_test.go"}), // same, relative to current wd
+		axe.WithTools([]clitool.Definition{
+			clitool.MustNewDefinition("go_test", "go test -v", "run tests under wd with 'go test -v'", nil), // command will be executed in a wd, specified by llm.
+		}),
+		axe.WithModel(axe.ModelGPT4Dot1),
+		axe.WithSink(os.Stdout),
+	)
+	if err != nil {
+		log.Fatalf("failed to create runner: %v", err)
+	}
+	err = runner.Run(context.Background(), true)
+	if err != nil {
+		log.Fatalf("failed to run: %v", err)
+	}
 }
+
 ```
 
 When executed, the runner creates a feedback loop where the model edits `add_test.go` until the tests pass and
