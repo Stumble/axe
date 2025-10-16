@@ -25,8 +25,9 @@ import (
 )
 
 const (
-	defaultMaxSteps    = 40
-	DefaultHistoryFile = ".axe_history.xml"
+	DefaultMaxSteps         = 40
+	DefaultHistoryFile      = ".axe_history.xml"
+	DefaultOutputBufferSize = 4096
 )
 
 type RunnerState struct {
@@ -35,6 +36,8 @@ type RunnerState struct {
 }
 
 // Runner is the core workflow executor.
+// Agent / logger -> write_to -> Output channel -> OutputRecorder
+// OutputRecorder fan out to the sink and a string buffer.
 type Runner struct {
 	BaseDir      string // a base directory, relative to the current working directory.
 	History      *history.History
@@ -47,7 +50,11 @@ type Runner struct {
 
 	// The state of the runner
 	State  *RunnerState
-	Output chan string // output from the agent
+	Output chan string // output buffer for the agent's output. This will be consumed by outputRecorder.
+	Sink   io.Writer   // the sink to write the agent's output to
+
+	outputRecorder *outputRecorder // the recorder to record the agent's output to a string buffer & write to sink
+	wg             sync.WaitGroup
 }
 
 func NewRunner(baseDir string, instructions []string, code *container.CodeContainer, opts ...RunnerOption) (*Runner, error) {
@@ -57,6 +64,7 @@ func NewRunner(baseDir string, instructions []string, code *container.CodeContai
 		State: &RunnerState{
 			Code: code,
 		},
+		Output: make(chan string, DefaultOutputBufferSize),
 	}
 	for _, opt := range opts {
 		if err := opt(r); err != nil {
@@ -66,6 +74,9 @@ func NewRunner(baseDir string, instructions []string, code *container.CodeContai
 	if err := r.applyDefaults(); err != nil {
 		return nil, err
 	}
+	r.outputRecorder = &outputRecorder{
+		sink: r.Sink,
+	}
 	return r, nil
 }
 
@@ -73,26 +84,34 @@ func (r *Runner) Run(ctx context.Context, loadDotEnv bool) error {
 	if r == nil {
 		return errors.New("axe: nil runner")
 	}
-	if r.shouldSkipRun() {
-		return nil
-	}
 	if loadDotEnv {
 		if err := godotenv.Load(); err != nil {
 			log.Warn().Err(err).Msg("axe: load .env file")
 		}
 	}
+	if r.shouldSkipRun() {
+		return nil
+	}
 
-	recorder := &outputRecorder{}
+	// spawn a goroutine to consume the output from the agent and write to the outputRecorder. This goroutine will exit when Output is closed.
+	closeOutputOnce := sync.OnceFunc(func() {
+		close(r.Output)
+	})
+	defer closeOutputOnce()
+	r.wg.Add(1)
+	go func() {
+		defer r.wg.Done()
+		r.outputRecorder.consume(r.Output)
+	}()
 
 	chatModel, err := newChatModel(ctx, r.Model)
 	if err != nil {
 		return err
 	}
 	log.Debug().Msgf("axe: using model %s", r.Model)
-	r.writeStdout(recorder, fmt.Sprintf("axe: using model %s\n", r.Model))
+	r.outputRecorder.Write(fmt.Sprintf("axe: using model %s\n", r.Model))
 
 	changelog := history.Changelog{Timestamp: time.Now()}
-	r.Output = make(chan string, 4096)
 	tools := r.buildToolset(&changelog)
 
 	agt, err := react.NewAgent(ctx, r.buildAgentConfig(chatModel, tools))
@@ -108,9 +127,9 @@ func (r *Runner) Run(ctx context.Context, loadDotEnv bool) error {
 	if err != nil {
 		return fmt.Errorf("axe: format prompt: %w", err)
 	}
-	r.printInitialMessages(messages, recorder)
-
-	wg := r.startOutputForwarder(ctx, recorder)
+	for _, msg := range messages {
+		r.outputRecorder.Write(fmt.Sprintf("%s: %s\n", msg.Role, msg.Content))
+	}
 
 	msgReader, err := agt.Stream(ctx, messages)
 	if err != nil {
@@ -119,18 +138,20 @@ func (r *Runner) Run(ctx context.Context, loadDotEnv bool) error {
 	defer msgReader.Close()
 
 	agentExecErr := r.consumeAgentStream(msgReader)
-	close(r.Output)
 	log.Debug().Err(agentExecErr).Msg("axe: agent execution finished")
 
 	if agentExecErr != nil {
-		recorder.Write(fmt.Sprintf("Agent execution failed: %v\n", agentExecErr))
+		r.outputRecorder.Write(fmt.Sprintf("Agent execution failed: %v\n", agentExecErr))
 	} else {
-		recorder.Write("Agent execution finished successfully.\n")
+		r.outputRecorder.Write("Agent execution finished successfully.\n")
 	}
 
-	wg.Wait()
+	// time to close output and wait for the outputRecorder to finish.
+	closeOutputOnce()
+	r.wg.Wait()
 
-	if output := recorder.String(); output != "" {
+	// after close, write the outputRecorder's string buffer to the changelog.
+	if output := r.outputRecorder.String(); output != "" {
 		changelog.AddLog(output)
 	}
 
@@ -168,7 +189,7 @@ func (r *Runner) buildToolset(changelog *history.Changelog) []tool.BaseTool {
 func (r *Runner) buildAgentConfig(chatModel model.ToolCallingChatModel, tools []tool.BaseTool) *react.AgentConfig {
 	maxSteps := r.MaxSteps
 	if maxSteps <= 0 {
-		maxSteps = defaultMaxSteps
+		maxSteps = DefaultMaxSteps
 	}
 	return &react.AgentConfig{
 		StreamToolCallChecker: r.toolCallChecker,
@@ -196,62 +217,6 @@ func (r *Runner) buildAgentConfig(chatModel model.ToolCallingChatModel, tools []
 	}
 }
 
-func (r *Runner) printInitialMessages(messages []*schema.Message, recorder *outputRecorder) {
-	for _, msg := range messages {
-		r.writeStdout(recorder, fmt.Sprintf("%s: %s\n", msg.Role, msg.Content))
-	}
-}
-
-func (r *Runner) startOutputForwarder(ctx context.Context, recorder *outputRecorder) *sync.WaitGroup {
-	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case msg, ok := <-r.Output:
-				if !ok {
-					return
-				}
-				r.writeStdout(recorder, msg)
-			}
-		}
-	}()
-	return &wg
-}
-
-func (r *Runner) writeStdout(recorder *outputRecorder, text string) {
-	fmt.Print(text)
-	if recorder != nil {
-		recorder.Write(text)
-	}
-}
-
-type outputRecorder struct {
-	mu  sync.Mutex
-	buf strings.Builder
-}
-
-func (o *outputRecorder) Write(text string) {
-	if o == nil {
-		return
-	}
-	o.mu.Lock()
-	defer o.mu.Unlock()
-	o.buf.WriteString(text)
-}
-
-func (o *outputRecorder) String() string {
-	if o == nil {
-		return ""
-	}
-	o.mu.Lock()
-	defer o.mu.Unlock()
-	return o.buf.String()
-}
-
 func (r *Runner) consumeAgentStream(msgReader *schema.StreamReader[*schema.Message]) error {
 	var agentExecErr error
 	for {
@@ -265,4 +230,106 @@ func (r *Runner) consumeAgentStream(msgReader *schema.StreamReader[*schema.Messa
 		}
 	}
 	return agentExecErr
+}
+
+// toolCallChecker observes streamed messages from the model and proxies them to the runner output channel.
+func (r *Runner) toolCallChecker(_ context.Context, sr *schema.StreamReader[*schema.Message]) (bool, error) {
+	defer sr.Close()
+	hasToolCalls := false
+	lastToolCallID := ""
+	var callStreamer *ToolCallStreamer
+	defer func() {
+		if callStreamer != nil {
+			_ = callStreamer.Close()
+		}
+	}()
+	for {
+		msg, err := sr.Recv()
+		if err != nil {
+			if errors.Is(err, io.EOF) {
+				break
+			}
+			return false, err
+		}
+		log.Debug().Str("type", fmt.Sprintf("%T", msg)).Any("msg", msg).Msg("stream msg")
+
+		if len(msg.ToolCalls) > 0 {
+			hasToolCalls = true
+			if len(msg.ToolCalls) > 1 {
+				// XXX(yxia): we don't support stream multiple tool calls yet.
+				// I am not even sure if model would stream multiple tool calls at once.
+				// Even model has multiple tool calls, I assume it will return them one by one.
+				// Anyways, in this case, we just simply stream the message.
+				r.streamFrame(msg)
+			} else {
+				call := msg.ToolCalls[0]
+				if call.ID != "" && call.ID != lastToolCallID {
+					// close the previous call streamer and create a new one
+					if callStreamer != nil {
+						_ = callStreamer.Close()
+					}
+					lastToolCallID = call.ID
+					callStreamer = NewToolCallStreamer(call.ID, r.Output)
+				}
+				err := callStreamer.OnMsg(&call)
+				if err != nil {
+					// unexpected error, just return
+					return false, err
+				}
+			}
+		} else {
+			r.streamFrame(msg)
+		}
+	}
+	r.Output <- "\n"
+	return hasToolCalls, nil
+}
+
+func (r *Runner) streamFrame(frame any) {
+	switch frame := frame.(type) {
+	case *schema.Message:
+		if frame.Content != "" {
+			r.outputRecorder.Write(frame.Content)
+		} else if len(frame.ToolCalls) > 0 {
+			panic("tool calls in message")
+		}
+	}
+}
+
+// outputRecorder is a helper to record the output and write it to a sink.
+type outputRecorder struct {
+	mu   sync.Mutex
+	buf  strings.Builder
+	sink io.Writer
+}
+
+func (o *outputRecorder) Write(text string) {
+	if o == nil {
+		return
+	}
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	o.buf.WriteString(text)
+	if o.sink != nil {
+		_, err := io.WriteString(o.sink, text)
+		if err != nil {
+			log.Error().Err(err).Msg("axe: write to sink")
+		}
+	}
+}
+
+func (o *outputRecorder) String() string {
+	if o == nil {
+		return ""
+	}
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	return o.buf.String()
+}
+
+// consume consumes the output from the agent and writes it to the outputRecorder. This function will exit when the out channel is closed.
+func (o *outputRecorder) consume(out chan string) {
+	for msg := range out {
+		o.Write(msg)
+	}
 }

@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"log"
+	"os"
 
 	"github.com/rs/zerolog"
 
@@ -36,6 +37,7 @@ func main() {
 			clitool.MustNewDefinition("go_test", "go test -v", "run tests under wd with 'go test -v'", nil), // command will be executed in a wd, specified by llm.
 		}),
 		axe.WithModel(axe.ModelGPT4Dot1),
+		axe.WithSink(os.Stdout),
 	)
 	if err != nil {
 		log.Fatalf("failed to create runner: %v", err)

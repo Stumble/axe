@@ -2,6 +2,7 @@ package axe
 
 import (
 	"fmt"
+	"io"
 	"path/filepath"
 	"time"
 
@@ -50,6 +51,20 @@ func WithMinInterval(minInterval time.Duration) RunnerOption {
 	}
 }
 
+func WithSink(sink io.Writer) RunnerOption {
+	return func(r *Runner) error {
+		r.Sink = sink
+		return nil
+	}
+}
+
+func WithOutputBufferSize(bufferSize int) RunnerOption {
+	return func(r *Runner) error {
+		r.Output = make(chan string, bufferSize)
+		return nil
+	}
+}
+
 func (r *Runner) applyDefaults() error {
 	if r.History == nil {
 		historyFile := filepath.Join(r.BaseDir, DefaultHistoryFile)
@@ -60,7 +75,7 @@ func (r *Runner) applyDefaults() error {
 		r.History = history
 	}
 	if r.MaxSteps <= 0 {
-		r.MaxSteps = defaultMaxSteps
+		r.MaxSteps = DefaultMaxSteps
 	}
 	if r.Model == "" {
 		r.Model = ModelGPT4o
