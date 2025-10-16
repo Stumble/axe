@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -53,6 +54,8 @@ type Runner struct {
 	Output chan string // output buffer for the agent's output. This will be consumed by outputRecorder.
 	Sink   io.Writer   // the sink to write the agent's output to
 
+	KeepHistory bool // if true, previous changelogs will be kept.
+
 	outputRecorder *outputRecorder // the recorder to record the agent's output to a string buffer & write to sink
 	wg             sync.WaitGroup
 }
@@ -78,6 +81,24 @@ func NewRunner(baseDir string, instructions []string, code *container.CodeContai
 		sink: r.Sink,
 	}
 	return r, nil
+}
+
+func (r *Runner) applyDefaults() error {
+	if r.History == nil {
+		historyFile := filepath.Join(r.BaseDir, DefaultHistoryFile)
+		history, err := history.ReadHistoryFromFile(historyFile)
+		if err != nil {
+			return fmt.Errorf("axe: read history file: %w", err)
+		}
+		r.History = history
+	}
+	if r.MaxSteps <= 0 {
+		r.MaxSteps = DefaultMaxSteps
+	}
+	if r.Model == "" {
+		r.Model = ModelGPT4o
+	}
+	return nil
 }
 
 func (r *Runner) Run(ctx context.Context, loadDotEnv bool) error {
@@ -155,7 +176,12 @@ func (r *Runner) Run(ctx context.Context, loadDotEnv bool) error {
 		changelog.AddLog(output)
 	}
 
-	r.History.AppendChangelog(changelog)
+	if !r.KeepHistory {
+		// clear previous changelogs
+		r.History.Changelogs = []history.Changelog{changelog}
+	} else {
+		r.History.AppendChangelog(changelog)
+	}
 	if err := r.History.SaveHistoryToFile(); err != nil {
 		return fmt.Errorf("axe: save history: %w", err)
 	}

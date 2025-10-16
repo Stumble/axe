@@ -58,7 +58,7 @@ func (t *FinalizeTool) Info(ctx context.Context) (*schema.ToolInfo, error) {
 }
 
 func (t *FinalizeTool) InvokableRun(ctx context.Context, argumentsInJSON string, _ ...tool.Option) (string, error) {
-	log.Info().Msgf("finalize_task: finalizing task: %s", argumentsInJSON)
+	log.Debug().Msgf("finalize_task: finalizing task: %s", argumentsInJSON)
 	if strings.TrimSpace(argumentsInJSON) == "" {
 		return "", errors.New("finalize_task: missing arguments")
 	}

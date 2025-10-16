@@ -3,7 +3,6 @@ package axe
 import (
 	"fmt"
 	"io"
-	"path/filepath"
 	"time"
 
 	"github.com/stumble/axe/history"
@@ -65,20 +64,9 @@ func WithOutputBufferSize(bufferSize int) RunnerOption {
 	}
 }
 
-func (r *Runner) applyDefaults() error {
-	if r.History == nil {
-		historyFile := filepath.Join(r.BaseDir, DefaultHistoryFile)
-		history, err := history.ReadHistoryFromFile(historyFile)
-		if err != nil {
-			return fmt.Errorf("axe: read history file: %w", err)
-		}
-		r.History = history
+func WithKeepHistory(keepHistory bool) RunnerOption {
+	return func(r *Runner) error {
+		r.KeepHistory = keepHistory
+		return nil
 	}
-	if r.MaxSteps <= 0 {
-		r.MaxSteps = DefaultMaxSteps
-	}
-	if r.Model == "" {
-		r.Model = ModelGPT4o
-	}
-	return nil
 }
