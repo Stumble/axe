@@ -168,7 +168,7 @@ func TestCliTool_InvokableRun_SuccessArgsAndEnvPrecedence(t *testing.T) {
 		map[string]string{"FOO": "base"},
 	)}
 	dir := t.TempDir()
-	args := map[string]any{"args": []string{"ARGVAL"}, "workdir": dir}
+	args := map[string]any{"args": "[\"ARGVAL\"]", "workdir": dir}
 	data, _ := json.Marshal(args)
 	resp, err := tool.InvokableRun(ctx, string(data))
 	require.NoError(t, err)
@@ -198,7 +198,7 @@ func TestCliTool_InvokableRun_TimeoutExitCode(t *testing.T) {
 	defer cancel()
 	tool := &CliTool{Def: MustNewDefinition("sleep", "/bin/sh -c 'sleep 2'", "", nil)}
 	dir := t.TempDir()
-	args := map[string]any{"workdir": dir}
+	args := map[string]any{"workdir": dir, "args": "[]"}
 	data, _ := json.Marshal(args)
 	resp, err := tool.InvokableRun(ctx, string(data))
 	require.NoError(t, err)
@@ -235,7 +235,7 @@ func TestCliTool_InvokableRun_WorkdirScriptEnvMerge(t *testing.T) {
 		map[string]string{"FOO": "base"},
 	)}
 
-	args := map[string]any{"workdir": dir}
+	args := map[string]any{"workdir": dir, "args": "[]"}
 	data, _ := json.Marshal(args)
 	resp, err := tool.InvokableRun(ctx, string(data))
 	require.NoError(t, err)

@@ -209,6 +209,11 @@ func (t *CliTool) InvokableRun(ctx context.Context, argumentsInJSON string, _ ..
 		return fmt.Sprintf("%s: workdir is required", t.Def.Name), nil
 	}
 
+	if req.ArgsJSONString == "" {
+		// default to empty array
+		req.ArgsJSONString = "[]"
+	}
+
 	var argv []string
 	if err := json.Unmarshal([]byte(req.ArgsJSONString), &argv); err != nil {
 		return fmt.Sprintf("clitool: invalid arguments: %v", err), nil
