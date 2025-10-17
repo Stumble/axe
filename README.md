@@ -211,7 +211,7 @@ the instruction criteria are satisfied.
 ## Running and monitoring
 
 1. Export your API key: `export OPENAI_API_KEY=sk-...`.
-2. Change to the directory that contains your runner (for example, `cmd/examples/great_test_writer.go`).
+2. Change to the directory that contains your runner (for example, `cmd/examples/great_test_writer`).
 3. Run `go run .` to start the workflow.
 4. Watch the logs to follow the LLM’s actions. The runner will log each edit, command invocation, and
    verification result.

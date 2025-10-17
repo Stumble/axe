@@ -170,8 +170,8 @@ type CliTool struct {
 
 type CliToolRequest struct {
 	// Args are extra argv to append to the configured command.
-	Args    []string `json:"args,omitempty"`
-	Workdir string   `json:"workdir,omitempty"`
+	ArgsJSONString string `json:"args,omitempty"`
+	Workdir        string `json:"workdir,omitempty"`
 }
 
 // Info describes the tool to the model.
@@ -181,14 +181,12 @@ func (t *CliTool) Info(ctx context.Context) (*schema.ToolInfo, error) {
 		Desc: t.Def.Desc,
 		ParamsOneOf: schema.NewParamsOneOfByParams(map[string]*schema.ParameterInfo{
 			"args": {
-				Type:     schema.Array,
-				ElemInfo: &schema.ParameterInfo{Type: schema.String},
-				Desc:     "Arguments to append to the configured command.",
+				Type: schema.String,
+				Desc: "Arguments to append to the configured command. This MUST be a JSON string encoding an array of strings, representing the arguments to append to the command. For example, [\"arg1\", \"arg2\"]",
 			},
 			"workdir": {
 				Type:     schema.String,
 				Required: true,
-				ElemInfo: &schema.ParameterInfo{Type: schema.String},
 				Desc:     "Working directory to execute the command in. Make sure to run the command in the correct working directory if the target was not specified by using the 'args' parameter.",
 			},
 		}),
@@ -211,7 +209,11 @@ func (t *CliTool) InvokableRun(ctx context.Context, argumentsInJSON string, _ ..
 		return fmt.Sprintf("%s: workdir is required", t.Def.Name), nil
 	}
 
-	argv := append(append([]string{}, t.Def.Args...), req.Args...)
+	var argv []string
+	if err := json.Unmarshal([]byte(req.ArgsJSONString), &argv); err != nil {
+		return fmt.Sprintf("clitool: invalid arguments: %v", err), nil
+	}
+	argv = append(append([]string{}, t.Def.Args...), argv...)
 	workdir := req.Workdir
 
 	// Execute
